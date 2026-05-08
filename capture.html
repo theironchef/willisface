@@ -16,22 +16,11 @@
     <video id="video" autoplay playsinline muted></video>
     <canvas id="canvas"></canvas>
     <svg class="overlay-svg" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid meet">
-      <defs>
-        <mask id="cutout">
-          <rect width="300" height="400" fill="white"/>
-          <ellipse cx="150" cy="220" rx="94" ry="124" fill="black"/>
-        </mask>
-      </defs>
-      <!-- darken outside the oval -->
-      <rect width="300" height="400" fill="rgba(0,0,0,0.45)" mask="url(#cutout)"/>
-      <!-- oval guide -->
-      <ellipse cx="150" cy="220" rx="94" ry="124"
-               fill="none" stroke="#ffd400" stroke-width="3" stroke-dasharray="6 4"/>
       <!-- horizontal eye line -->
       <line x1="58" y1="198" x2="242" y2="198" stroke="#00f0ff" stroke-width="2" stroke-dasharray="6 4" opacity="0.9"/>
       <text x="38" y="201" fill="#00f0ff" font-family="'Press Start 2P', monospace" font-size="8" opacity="0.95">EYES</text>
       <!-- vertical center line -->
-      <line x1="150" y1="80" x2="150" y2="370" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.6"/>
+      <line x1="150" y1="20" x2="150" y2="380" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.6"/>
     </svg>
   </div>
 
