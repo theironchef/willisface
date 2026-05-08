@@ -11,17 +11,30 @@ function captureUrl(name) {
 }
 
 function makeCard(name) {
-  const card = document.createElement('div');
+  const url = captureUrl(name);
+
+  // Anchor wraps the whole card so a tap on phone opens the capture page.
+  const card = document.createElement('a');
   card.className = 'qr-card';
-  const canvas = document.createElement('canvas');
-  card.appendChild(canvas);
+  card.href = url;
+
+  // qrcode() is the global from qrcode-generator (CDN script tag in qr.html).
+  // eslint-disable-next-line no-undef
+  const qr = qrcode(0, 'M');
+  qr.addData(url);
+  qr.make();
+  // 6 = cell size px, 2 = margin cells. Returns an <img> HTML string with data URL.
+  const imgHtml = qr.createImgTag(6, 2);
+
+  const imgWrap = document.createElement('div');
+  imgWrap.innerHTML = imgHtml;
+
   const label = document.createElement('div');
   label.className = 'qr-name';
   label.textContent = name.toUpperCase();
+
+  card.appendChild(imgWrap.firstChild);
   card.appendChild(label);
-  // QRCode is loaded globally from the CDN script tag.
-  // eslint-disable-next-line no-undef
-  QRCode.toCanvas(canvas, captureUrl(name), { width: 240, margin: 1 });
   return card;
 }
 

@@ -318,7 +318,11 @@ body {
   padding: 12px;
   text-align: center;
   border: 3px solid #000;
+  text-decoration: none;
+  display: block;
 }
+.qr-card:visited { color: #000; }
+.qr-card:hover { background: #ffe; }
 .qr-card .qr-name {
   font-family: 'Press Start 2P', monospace;
   font-size: 12px;
