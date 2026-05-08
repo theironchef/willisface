@@ -136,19 +136,90 @@ export function drawAligned(canvas, image, eyes, opts = {}) {
   ctx.restore();
 }
 
+function coverRect(image, W, H) {
+  const iw = image.naturalWidth  || image.width;
+  const ih = image.naturalHeight || image.height;
+  const ca = W / H;
+  const ia = iw / ih;
+  if (ia > ca) {
+    const sh = ih, sw = sh * ca;
+    return { sx: (iw - sw) / 2, sy: 0, sw, sh };
+  }
+  const sw = iw, sh = sw / ca;
+  return { sx: 0, sy: (ih - sh) / 2, sw, sh };
+}
+
 function drawCover(ctx, image, W, H) {
   const iw = image.naturalWidth  || image.width;
   const ih = image.naturalHeight || image.height;
   if (!iw || !ih) return;
-  const ca = W / H;
-  const ia = iw / ih;
-  let sx, sy, sw, sh;
-  if (ia > ca) {
-    sh = ih; sw = sh * ca;
-    sx = (iw - sw) / 2; sy = 0;
-  } else {
-    sw = iw; sh = sw / ca;
-    sx = 0; sy = (ih - sh) / 2;
+  const r = coverRect(image, W, H);
+  ctx.drawImage(image, r.sx, r.sy, r.sw, r.sh, 0, 0, W, H);
+}
+
+// Given an image, detected source-pixel eyes, and a canvas size W/H,
+// return where those eyes will land on the canvas after a cover-fit
+// draw. Used by the compare page to make the LEFT face the reference
+// and align the RIGHT face to the same eye positions.
+export function coverEyesOnCanvas(image, eyes, W, H) {
+  if (!eyes || !eyes.leftEye || !eyes.rightEye) return null;
+  const r = coverRect(image, W, H);
+  const sx = (p) => (p.x - r.sx) * (W / r.sw);
+  const sy = (p) => (p.y - r.sy) * (H / r.sh);
+  return {
+    leftEye:  { x: sx(eyes.leftEye),  y: sy(eyes.leftEye)  },
+    rightEye: { x: sx(eyes.rightEye), y: sy(eyes.rightEye) },
+  };
+}
+
+// Render `image` into `canvas` with a similarity transform that lands its
+// detected `eyes` exactly on `targetEyes` (in canvas coords). Falls back to
+// cover-fit if anything's missing.
+export function drawAlignedToTarget(canvas, image, eyes, targetEyes, opts = {}) {
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = opts.background || '#160630';
+  ctx.fillRect(0, 0, W, H);
+
+  if (!eyes || !eyes.leftEye || !eyes.rightEye ||
+      !targetEyes || !targetEyes.leftEye || !targetEyes.rightEye) {
+    drawCover(ctx, image, W, H);
+    return;
   }
-  ctx.drawImage(image, sx, sy, sw, sh, 0, 0, W, H);
+
+  const lx = eyes.leftEye.x,  ly = eyes.leftEye.y;
+  const rx = eyes.rightEye.x, ry = eyes.rightEye.y;
+  const cx = (lx + rx) / 2, cy = (ly + ry) / 2;
+  const d  = Math.hypot(rx - lx, ry - ly);
+  const angle = Math.atan2(ry - ly, rx - lx);
+
+  const tlx = targetEyes.leftEye.x,  tly = targetEyes.leftEye.y;
+  const trx = targetEyes.rightEye.x, ttry = targetEyes.rightEye.y;
+  const tcx = (tlx + trx) / 2, tcy = (tly + ttry) / 2;
+  const td  = Math.hypot(trx - tlx, ttry - tly);
+  const tAngle = Math.atan2(ttry - tly, trx - tlx);
+
+  if (!d || !td || !isFinite(d) || !isFinite(td)) {
+    drawCover(ctx, image, W, H);
+    return;
+  }
+
+  ctx.save();
+  ctx.translate(tcx, tcy);
+  ctx.rotate(tAngle - angle);
+  ctx.scale(td / d, td / d);
+  ctx.translate(-cx, -cy);
+  ctx.drawImage(image, 0, 0);
+  ctx.restore();
+}
+
+// Cover-fit only — exposed for the "alignment off" debug mode.
+export function drawCoverOnly(canvas, image) {
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#160630';
+  ctx.fillRect(0, 0, W, H);
+  drawCover(ctx, image, W, H);
 }

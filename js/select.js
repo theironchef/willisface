@@ -1,11 +1,17 @@
 import { PEOPLE } from './people.js';
 import { listPhotos, thumbUrl } from './drive.js';
 import { APPS_SCRIPT_URL } from './config.js';
-import { detectFace, drawAligned, loadImage, preloadDetector } from './face.js';
+import {
+  detectFace,
+  loadImage,
+  preloadDetector,
+  drawCoverOnly,
+  drawAlignedToTarget,
+  coverEyesOnCanvas,
+} from './face.js';
 
 const PLACEHOLDER = './assets/placeholder.svg';
 
-// Compare canvas resolution (logical px). Drawn into pane via CSS sizing.
 const COMPARE_W = 720;
 const COMPARE_H = 960;
 
@@ -15,6 +21,7 @@ const cv2 = document.getElementById('cv2');
 const name1El = document.getElementById('name1');
 const name2El = document.getElementById('name2');
 const splitSlider = document.getElementById('splitSlider');
+const alignBtn = document.getElementById('alignBtn');
 const roster = document.getElementById('roster');
 const nextPick = document.getElementById('nextPick');
 
@@ -24,17 +31,13 @@ const state = {
   left: null,
   right: null,
   nextSlot: 'left',
-  photos: {},
-  // cached per-name detection results so re-picking is fast
-  cache: new Map(), // name -> { image, eyes }
+  align: true,                     // when false, both panes render cover-fit
+  photos: {},                      // { name: fileId }
+  cache: new Map(),                // name -> { image, eyes }
+  loading: new Map(),              // name -> Promise<{image, eyes}>
 };
 
-function renderCompare() {
-  drawSlot(cv1, state.left);
-  drawSlot(cv2, state.right);
-  name1El.textContent = (state.left  || '—').toUpperCase();
-  name2El.textContent = (state.right || '—').toUpperCase();
-}
+// ---------- helpers ----------
 
 function paintLoading(canvas, label) {
   const ctx = canvas.getContext('2d');
@@ -47,61 +50,80 @@ function paintLoading(canvas, label) {
   ctx.fillText(label, canvas.width / 2, canvas.height / 2);
 }
 
-async function drawSlot(canvas, name) {
-  // Track which person each canvas is currently rendering so async detection
-  // results from a stale pick can be discarded.
-  canvas.dataset.name = name || '';
+function paintEmpty(canvas) {
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#160630';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  if (!name) return;
+}
+
+// Load image + run detection once per name. Cached for fast re-render.
+async function ensureEntry(name) {
+  if (state.cache.has(name)) return state.cache.get(name);
+  if (state.loading.has(name)) return state.loading.get(name);
 
   const fileId = state.photos[name];
-  if (!fileId) {
-    try {
-      const img = await loadImage(PLACEHOLDER);
-      if (canvas.dataset.name === name) drawAligned(canvas, img, null);
-    } catch (_) { /* ignore */ }
-    return;
-  }
-
-  // Cache hit — render aligned immediately and exit.
-  const cached = state.cache.get(name);
-  if (cached) {
-    drawAligned(canvas, cached.image, cached.eyes);
-    return;
-  }
-
-  paintLoading(canvas, 'LOADING…');
-  let img;
-  try {
-    img = await loadImage(thumbUrl(fileId, 800));
-  } catch (err) {
-    console.warn('failed to load image for', name, err);
-    try {
-      const ph = await loadImage(PLACEHOLDER);
-      if (canvas.dataset.name === name) drawAligned(canvas, ph, null);
-    } catch (_) {}
-    return;
-  }
-
-  // Stale check after the load.
-  if (canvas.dataset.name !== name) return;
-
-  // First paint: image with no alignment (instant feedback).
-  drawAligned(canvas, img, null);
-
-  // Run detection in background; upgrade to aligned when ready.
-  detectFace(img)
-    .then((eyes) => {
-      state.cache.set(name, { image: img, eyes });
-      if (canvas.dataset.name === name) drawAligned(canvas, img, eyes);
-    })
-    .catch((err) => {
-      console.warn('detect failed for', name, err);
-      state.cache.set(name, { image: img, eyes: null });
-    });
+  const promise = (async () => {
+    const url = fileId ? thumbUrl(fileId, 800) : PLACEHOLDER;
+    const image = await loadImage(url);
+    let eyes = null;
+    if (fileId) {
+      try { eyes = await detectFace(image); }
+      catch (_) { /* CORS-tainted or detector unavailable */ }
+    }
+    const entry = { image, eyes };
+    state.cache.set(name, entry);
+    state.loading.delete(name);
+    return entry;
+  })();
+  state.loading.set(name, promise);
+  return promise;
 }
+
+// ---------- main render ----------
+
+async function renderCompare() {
+  // Mark canvases with the current pick so async results can be discarded
+  // when stale. dataset.token is bumped on every render to support that.
+  const token = String(Date.now()) + Math.random();
+  cv1.dataset.token = token;
+  cv2.dataset.token = token;
+
+  // Always update name labels immediately.
+  name1El.textContent = (state.left  || '—').toUpperCase();
+  name2El.textContent = (state.right || '—').toUpperCase();
+
+  // Stage 1: paint loading / empty / placeholder so the user sees a response.
+  if (state.left)  paintLoading(cv1, 'LOADING…'); else paintEmpty(cv1);
+  if (state.right) paintLoading(cv2, 'LOADING…'); else paintEmpty(cv2);
+
+  // Stage 2: kick off any required loads in parallel.
+  const leftP  = state.left  ? ensureEntry(state.left)  : Promise.resolve(null);
+  const rightP = state.right ? ensureEntry(state.right) : Promise.resolve(null);
+  const [leftEntry, rightEntry] = await Promise.all([leftP, rightP]).catch(() => [null, null]);
+
+  // Bail if a fresher render started while we were waiting.
+  if (cv1.dataset.token !== token) return;
+
+  // Stage 3: draw.
+  const aligning = state.align;
+
+  // LEFT pane: always cover-fit (it's the reference framing).
+  if (leftEntry) drawCoverOnly(cv1, leftEntry.image);
+
+  // RIGHT pane: when alignment is ON and we have eyes for both faces,
+  // similarity-transform right's image so its eyes land exactly where
+  // left's eyes landed on cv1. Otherwise fall back to cover-fit.
+  if (rightEntry) {
+    if (aligning && leftEntry && leftEntry.eyes && rightEntry.eyes) {
+      const targetEyes = coverEyesOnCanvas(leftEntry.image, leftEntry.eyes, COMPARE_W, COMPARE_H);
+      drawAlignedToTarget(cv2, rightEntry.image, rightEntry.eyes, targetEyes);
+    } else {
+      drawCoverOnly(cv2, rightEntry.image);
+    }
+  }
+}
+
+// ---------- UI wiring ----------
 
 function renderHint() {
   nextPick.textContent =
@@ -153,7 +175,17 @@ function setSplit(pct) {
   comparePane.style.setProperty('--split', pct + '%');
 }
 
+function refreshAlignBtn() {
+  alignBtn.textContent = state.align ? 'ALIGN: ON' : 'ALIGN: OFF';
+  alignBtn.classList.toggle('off', !state.align);
+}
+
 splitSlider.addEventListener('input', () => setSplit(splitSlider.value));
+alignBtn.addEventListener('click', () => {
+  state.align = !state.align;
+  refreshAlignBtn();
+  renderCompare();
+});
 
 async function loadPhotos() {
   if (!APPS_SCRIPT_URL) return;
@@ -170,13 +202,14 @@ async function loadPhotos() {
         img.onerror = () => { img.src = PLACEHOLDER; tile.classList.add('placeholder'); };
       }
     }
-    renderCompare(); // re-render with real photos if slots already set
+    renderCompare();
   } catch (err) {
     console.warn('listPhotos failed', err);
   }
 }
 
 buildRoster();
+refreshAlignBtn();
 renderCompare();
 renderHint();
 setSplit(50);
