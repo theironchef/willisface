@@ -8,7 +8,7 @@
 // 1) Create a folder in your Drive (e.g. "willisface").
 // 2) Open it in the browser; the URL ends with .../folders/<FOLDER_ID>.
 // 3) Paste that ID here:
-const FOLDER_ID = 'PASTE_FOLDER_ID_HERE';
+const FOLDER_ID = '1eQnc71AWU8k2FVliNUXcWTnXzSk4vGGn';
 
 // Allowed display names — keep in sync with js/people.js
 const PEOPLE = [
