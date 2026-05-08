@@ -33,7 +33,7 @@ const state = {
   left: null,
   right: null,
   nextSlot: 'left',
-  debug: true,
+  debug: false,
   photos: {},
   cache: new Map(),    // name -> { image, landmarks, sourceLabel }
   loading: new Map(),  // name -> Promise<entry>
