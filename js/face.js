@@ -96,12 +96,18 @@ function loadOnce(url, withCors) {
   });
 }
 
-// Canonical target where every face's eye line lands. Both compare panes
-// use the same target so face centerlines coincide with the split divider.
+// Canonical target where every face's bounding box lands. Both compare
+// panes use the same target so faces are the same size and centerlines
+// coincide with the split divider.
+//
+// Scale is driven by the face bounding-box HEIGHT (more reliable than
+// eye distance for matching head sizes). Translation puts the eye
+// midpoint at (eyeCx, eyeCy) so eye lines coincide. Rotation makes the
+// eye line horizontal.
 export const CANONICAL = {
-  eyeCx:   0.50, // eye midpoint X (fraction of canvas width)
-  eyeCy:   0.42, // eye midpoint Y (fraction of canvas height)
-  eyeDist: 0.32, // eye-to-eye distance (fraction of canvas width)
+  eyeCx:    0.50, // eye midpoint X (fraction of canvas width)
+  eyeCy:    0.42, // eye midpoint Y (fraction of canvas height)
+  faceHFrac: 0.70, // face bounding-box height as fraction of canvas height
 };
 
 // Returns the canonical landmark target positions in canvas pixel coords
@@ -109,51 +115,52 @@ export const CANONICAL = {
 export function canonicalTargets(W, H, opts = CANONICAL) {
   const cx = W * opts.eyeCx;
   const cy = H * opts.eyeCy;
-  const half = (W * opts.eyeDist) / 2;
+  // Approximate eye half-spacing for the debug eye-line marker. Real
+  // alignment uses the bounding box, so this is illustrative only.
+  const halfEye = W * 0.16;
+  const faceH = H * opts.faceHFrac;
   return {
-    leftEye:  { x: cx - half, y: cy },
-    rightEye: { x: cx + half, y: cy },
-    // Approximate (only for debug — not measured): nose ~10% below eye
-    // line, mouth ~22% below.
-    nose:  { x: cx, y: cy + H * 0.10 },
-    mouth: { x: cx, y: cy + H * 0.22 },
+    leftEye:  { x: cx - halfEye, y: cy },
+    rightEye: { x: cx + halfEye, y: cy },
+    nose:     { x: cx,           y: cy + faceH * 0.18 },
+    mouth:    { x: cx,           y: cy + faceH * 0.36 },
   };
 }
 
-// Renders `image` into `canvas` so the eye line lands at the canonical
-// position with a rotation correction so eyes are level. If `eyes` is
-// null/incomplete, falls back to "object-fit: cover".
-export function drawAligned(canvas, image, eyes, opts = CANONICAL) {
+// Renders `image` into `canvas` with a similarity transform that:
+//  - centers the source eye midpoint at the canonical (eyeCx, eyeCy),
+//  - scales so the source face bounding-box height equals faceHFrac × H,
+//  - rotates so the eye line is horizontal.
+// Falls back to "object-fit: cover" if any required landmark is missing.
+export function drawAligned(canvas, image, lm, opts = CANONICAL) {
   const W = canvas.width, H = canvas.height;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = '#160630';
   ctx.fillRect(0, 0, W, H);
 
-  if (!eyes || !eyes.leftEye || !eyes.rightEye) {
+  if (!lm || !lm.leftEye || !lm.rightEye || !lm.box || !lm.box.height) {
     drawCover(ctx, image, W, H);
     return;
   }
 
-  const t = canonicalTargets(W, H, opts);
-  const tcx = (t.leftEye.x + t.rightEye.x) / 2;
-  const tcy = (t.leftEye.y + t.rightEye.y) / 2;
-  const td  = Math.hypot(t.rightEye.x - t.leftEye.x, t.rightEye.y - t.leftEye.y);
-
-  const lx = eyes.leftEye.x,  ly = eyes.leftEye.y;
-  const rx = eyes.rightEye.x, ry = eyes.rightEye.y;
-  const cx = (lx + rx) / 2;
-  const cy = (ly + ry) / 2;
-  const d  = Math.hypot(rx - lx, ry - ly);
+  const lx = lm.leftEye.x,  ly = lm.leftEye.y;
+  const rx = lm.rightEye.x, ry = lm.rightEye.y;
+  const eyeCx = (lx + rx) / 2;
+  const eyeCy = (ly + ry) / 2;
   const angle = Math.atan2(ry - ly, rx - lx);
 
-  if (!d || !isFinite(d)) { drawCover(ctx, image, W, H); return; }
+  const scale = (H * opts.faceHFrac) / lm.box.height;
+  if (!isFinite(scale) || scale <= 0) { drawCover(ctx, image, W, H); return; }
+
+  const tcx = W * opts.eyeCx;
+  const tcy = H * opts.eyeCy;
 
   ctx.save();
-  ctx.translate(tcx, tcy);
-  ctx.rotate(-angle);
-  ctx.scale(td / d, td / d);
-  ctx.translate(-cx, -cy);
+  ctx.translate(tcx, tcy);     // eye midpoint lands here
+  ctx.rotate(-angle);          // levels the eye line
+  ctx.scale(scale, scale);     // bbox height becomes faceHFrac × H
+  ctx.translate(-eyeCx, -eyeCy);
   ctx.drawImage(image, 0, 0);
   ctx.restore();
 }
