@@ -141,14 +141,61 @@ const FACE_H_FRAC = 0.62;
 const FACE_CX_FRAC = 0.50;
 const FACE_CY_FRAC = 0.48;
 
+// Cross-platform face detection: native FaceDetector (Android Chrome) when
+// available, MediaPipe Tasks Vision FaceDetector as fallback (iOS Safari etc.).
+const MP_VERSION = '0.10.14';
+const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
+const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite';
+
+let detectorState = { kind: null, detector: null, promise: null };
+
+function ensureDetector() {
+  if (detectorState.promise) return detectorState.promise;
+  detectorState.promise = (async () => {
+    if ('FaceDetector' in window) {
+      try {
+        detectorState.detector = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+        detectorState.kind = 'native';
+        return;
+      } catch (_) { /* fall through to MediaPipe */ }
+    }
+    const mod = await import(/* @vite-ignore */ `https://esm.sh/@mediapipe/tasks-vision@${MP_VERSION}`);
+    const vision = await mod.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    detectorState.detector = await mod.FaceDetector.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: MP_MODEL, delegate: 'GPU' },
+      runningMode: 'IMAGE',
+    });
+    detectorState.kind = 'mediapipe';
+  })();
+  detectorState.promise.catch((err) => {
+    console.warn('detector load failed', err);
+    detectorState.promise = null; // allow retry
+  });
+  return detectorState.promise;
+}
+
 async function detectFace(canvasEl) {
-  if (!('FaceDetector' in window)) return null;
   try {
-    const fd = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
-    const faces = await fd.detect(canvasEl);
-    if (faces && faces.length) return faces[0].boundingBox;
+    await ensureDetector();
+  } catch (_) { return null; }
+  const { kind, detector } = detectorState;
+  if (!detector) return null;
+  try {
+    if (kind === 'native') {
+      const faces = await detector.detect(canvasEl);
+      if (faces && faces.length) {
+        const bb = faces[0].boundingBox;
+        return { x: bb.x, y: bb.y, width: bb.width, height: bb.height };
+      }
+    } else {
+      const out = detector.detect(canvasEl);
+      if (out && out.detections && out.detections.length) {
+        const bb = out.detections[0].boundingBox;
+        return { x: bb.originX, y: bb.originY, width: bb.width, height: bb.height };
+      }
+    }
   } catch (err) {
-    console.warn('FaceDetector failed', err);
+    console.warn('detect failed', err);
   }
   return null;
 }
@@ -284,6 +331,9 @@ function init() {
   useBtn.addEventListener('click', upload);
   flipBtn.addEventListener('click', flipCamera);
   startCameraInitial();
+  // Kick off the face-detector load in parallel with the camera so the
+  // model is usually ready by the time the user taps SNAP.
+  ensureDetector().catch(() => {});
 }
 
 window.addEventListener('beforeunload', stopCamera);
