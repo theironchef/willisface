@@ -24,27 +24,14 @@
       </defs>
       <!-- darken outside the oval -->
       <rect width="300" height="400" fill="rgba(0,0,0,0.45)" mask="url(#cutout)"/>
-      <!-- oval guide (head area, leaves room above for hair) -->
+      <!-- oval guide -->
       <ellipse cx="150" cy="220" rx="94" ry="124"
                fill="none" stroke="#ffd400" stroke-width="3" stroke-dasharray="6 4"/>
-      <!-- eye target circles + faint line -->
-      <line x1="58" y1="198" x2="242" y2="198" stroke="#00f0ff" stroke-width="1" stroke-dasharray="3 5" opacity="0.45"/>
-      <circle cx="112" cy="198" r="13" fill="rgba(0,240,255,0.08)" stroke="#00f0ff" stroke-width="2.5" opacity="0.95"/>
-      <circle cx="188" cy="198" r="13" fill="rgba(0,240,255,0.08)" stroke="#00f0ff" stroke-width="2.5" opacity="0.95"/>
+      <!-- horizontal eye line -->
+      <line x1="58" y1="198" x2="242" y2="198" stroke="#00f0ff" stroke-width="2" stroke-dasharray="6 4" opacity="0.9"/>
       <text x="38" y="201" fill="#00f0ff" font-family="'Press Start 2P', monospace" font-size="8" opacity="0.95">EYES</text>
-      <!-- chin cradle (U shape) -->
-      <path d="M118,322 Q150,348 182,322" fill="none" stroke="#ff2e88" stroke-width="2.5" opacity="0.95"/>
-      <text x="186" y="338" fill="#ff2e88" font-family="'Press Start 2P', monospace" font-size="8" opacity="0.95">CHIN</text>
-      <!-- vertical center line for L/R alignment -->
-      <line x1="150" y1="80" x2="150" y2="370" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.55"/>
-      <text x="154" y="90" fill="#ffffff" font-family="'Press Start 2P', monospace" font-size="8" opacity="0.7">CENTER</text>
-      <!-- corner crosshairs -->
-      <g stroke="#ffd400" stroke-width="2" fill="none">
-        <path d="M10,10 H30 M10,10 V30"/>
-        <path d="M290,10 H270 M290,10 V30"/>
-        <path d="M10,390 H30 M10,390 V370"/>
-        <path d="M290,390 H270 M290,390 V370"/>
-      </g>
+      <!-- vertical center line -->
+      <line x1="150" y1="80" x2="150" y2="370" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.6"/>
     </svg>
   </div>
 
