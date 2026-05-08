@@ -6,9 +6,9 @@ import {
   detectFace,
   preloadDetector,
   drawCoverOnly,
-  drawAlignedToTarget,
+  drawAligned,
   drawLandmarkMarkers,
-  landmarksOnCanvas,
+  canonicalTargets,
 } from './face.js';
 
 const PLACEHOLDER = './assets/placeholder.svg';
@@ -119,28 +119,28 @@ async function renderCompare() {
 
   if (renderToken !== token) return;
 
-  // LEFT pane — cover-fit (acts as the framing reference).
-  if (leftEntry) drawCoverOnly(cv1, leftEntry.image);
-
-  // Compute LEFT landmarks in canvas coords (post-cover).
-  const leftOnCv = leftEntry
-    ? landmarksOnCanvas(leftEntry.image, leftEntry.landmarks, COMPARE_W, COMPARE_H)
-    : null;
-
-  // RIGHT pane — similarity-transformed so its eyes land on LEFT's eye
-  // positions. Falls back to cover-fit if either side lacks landmarks.
+  // Both panes get transformed to the SAME canonical target, so eye
+  // midpoints land at canvas X=50% — putting both face centerlines on
+  // the split divider.
+  if (leftEntry) {
+    if (leftEntry.landmarks && leftEntry.landmarks.leftEye && leftEntry.landmarks.rightEye) {
+      drawAligned(cv1, leftEntry.image, leftEntry.landmarks);
+    } else {
+      drawCoverOnly(cv1, leftEntry.image);
+    }
+  }
   if (rightEntry) {
-    if (leftOnCv && rightEntry.landmarks &&
-        rightEntry.landmarks.leftEye && rightEntry.landmarks.rightEye) {
-      drawAlignedToTarget(cv2, rightEntry.image, rightEntry.landmarks, leftOnCv);
+    if (rightEntry.landmarks && rightEntry.landmarks.leftEye && rightEntry.landmarks.rightEye) {
+      drawAligned(cv2, rightEntry.image, rightEntry.landmarks);
     } else {
       drawCoverOnly(cv2, rightEntry.image);
     }
   }
 
   if (state.debug) {
-    if (leftEntry && leftOnCv) drawLandmarkMarkers(cv1, leftOnCv);
-    if (rightEntry && leftOnCv) drawLandmarkMarkers(cv2, leftOnCv);
+    const targets = canonicalTargets(COMPARE_W, COMPARE_H);
+    if (leftEntry  && leftEntry.landmarks)  drawLandmarkMarkers(cv1, targets);
+    if (rightEntry && rightEntry.landmarks) drawLandmarkMarkers(cv2, targets);
   }
 
   // Status text.

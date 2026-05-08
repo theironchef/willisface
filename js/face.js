@@ -96,15 +96,38 @@ function loadOnce(url, withCors) {
   });
 }
 
-// Renders `image` into `canvas` so the eye line lands at a canonical
-// position: eye center at (TGT_CX, TGT_CY) and eye distance = TGT_EYE_DIST,
-// with a rotation correction so eyes are level. If `eyes` is null, falls
-// back to a center "object-fit: cover" draw.
-export function drawAligned(canvas, image, eyes, opts = {}) {
+// Canonical target where every face's eye line lands. Both compare panes
+// use the same target so face centerlines coincide with the split divider.
+export const CANONICAL = {
+  eyeCx:   0.50, // eye midpoint X (fraction of canvas width)
+  eyeCy:   0.42, // eye midpoint Y (fraction of canvas height)
+  eyeDist: 0.32, // eye-to-eye distance (fraction of canvas width)
+};
+
+// Returns the canonical landmark target positions in canvas pixel coords
+// — used both as transform targets and to draw debug markers.
+export function canonicalTargets(W, H, opts = CANONICAL) {
+  const cx = W * opts.eyeCx;
+  const cy = H * opts.eyeCy;
+  const half = (W * opts.eyeDist) / 2;
+  return {
+    leftEye:  { x: cx - half, y: cy },
+    rightEye: { x: cx + half, y: cy },
+    // Approximate (only for debug — not measured): nose ~10% below eye
+    // line, mouth ~22% below.
+    nose:  { x: cx, y: cy + H * 0.10 },
+    mouth: { x: cx, y: cy + H * 0.22 },
+  };
+}
+
+// Renders `image` into `canvas` so the eye line lands at the canonical
+// position with a rotation correction so eyes are level. If `eyes` is
+// null/incomplete, falls back to "object-fit: cover".
+export function drawAligned(canvas, image, eyes, opts = CANONICAL) {
   const W = canvas.width, H = canvas.height;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = opts.background || '#160630';
+  ctx.fillStyle = '#160630';
   ctx.fillRect(0, 0, W, H);
 
   if (!eyes || !eyes.leftEye || !eyes.rightEye) {
@@ -112,10 +135,10 @@ export function drawAligned(canvas, image, eyes, opts = {}) {
     return;
   }
 
-  // Canonical eye position in the output canvas.
-  const TGT_CX   = W * (opts.eyeCx   ?? 0.50);
-  const TGT_CY   = H * (opts.eyeCy   ?? 0.40);
-  const TGT_DIST = W * (opts.eyeDist ?? 0.32);
+  const t = canonicalTargets(W, H, opts);
+  const tcx = (t.leftEye.x + t.rightEye.x) / 2;
+  const tcy = (t.leftEye.y + t.rightEye.y) / 2;
+  const td  = Math.hypot(t.rightEye.x - t.leftEye.x, t.rightEye.y - t.leftEye.y);
 
   const lx = eyes.leftEye.x,  ly = eyes.leftEye.y;
   const rx = eyes.rightEye.x, ry = eyes.rightEye.y;
@@ -126,11 +149,10 @@ export function drawAligned(canvas, image, eyes, opts = {}) {
 
   if (!d || !isFinite(d)) { drawCover(ctx, image, W, H); return; }
 
-  const scale = TGT_DIST / d;
   ctx.save();
-  ctx.translate(TGT_CX, TGT_CY);
+  ctx.translate(tcx, tcy);
   ctx.rotate(-angle);
-  ctx.scale(scale, scale);
+  ctx.scale(td / d, td / d);
   ctx.translate(-cx, -cy);
   ctx.drawImage(image, 0, 0);
   ctx.restore();
