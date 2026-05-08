@@ -290,7 +290,8 @@ function init() {
   retakeBtn.addEventListener('click', retake);
   useBtn.addEventListener('click', upload);
   flipBtn.addEventListener('click', flipCamera);
-  pickFileBtn.addEventListener('click', () => fileInput.click());
+  // pickFileBtn is a <label for="fileInput"> — clicking it opens the
+  // picker natively. We just need to react to the resulting selection.
   fileInput.addEventListener('change', (e) => loadFromFile(e.target.files && e.target.files[0]));
   startCameraInitial();
 }

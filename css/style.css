@@ -349,6 +349,19 @@ body {
   box-shadow: 4px 4px 0 #000;
 }
 
+/* Visually hidden but still focusable + clickable (e.g. for <label for>). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .status {
   font-family: 'Press Start 2P', monospace;
   font-size: 11px;
