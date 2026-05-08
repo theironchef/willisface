@@ -6,15 +6,18 @@ const params = new URLSearchParams(location.search);
 const name = params.get('name') || '';
 
 const whoEl = document.getElementById('who');
+const viewport = document.getElementById('viewport');
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const status = document.getElementById('status');
 const snapBtn = document.getElementById('snapBtn');
 const retakeBtn = document.getElementById('retakeBtn');
 const useBtn = document.getElementById('useBtn');
+const flipBtn = document.getElementById('flipBtn');
 
 let stream = null;
 let capturedBlob = null;
+let facingMode = 'user'; // 'user' | 'environment'
 
 function setStatus(text, kind = '') {
   status.textContent = text;
@@ -25,11 +28,18 @@ function validName() {
   return PEOPLE.includes(name);
 }
 
+function applyMirror() {
+  // Only mirror the selfie cam — rear cam should be true-to-life.
+  viewport.classList.toggle('mirrored', facingMode === 'user');
+}
+
 async function startCamera() {
+  stopCamera();
+  applyMirror();
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: 'user',
+        facingMode: { ideal: facingMode },
         width: { ideal: 1280 },
         height: { ideal: 1707 },
       },
@@ -51,8 +61,16 @@ function stopCamera() {
   }
 }
 
-// Crop the live video to a 3:4 frame, mirrored to match what user saw,
-// then to the visible "viewport" rect. Output CAPTURE_WIDTH × CAPTURE_HEIGHT JPEG.
+async function flipCamera() {
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  flipBtn.disabled = true;
+  setStatus('SWITCHING CAMERA…');
+  await startCamera();
+  flipBtn.disabled = false;
+}
+
+// Crop the live video to a 3:4 frame matching the visible viewport. Output
+// CAPTURE_WIDTH × CAPTURE_HEIGHT JPEG. Mirror only for selfie cam.
 function snap() {
   const vw = video.videoWidth;
   const vh = video.videoHeight;
@@ -61,18 +79,15 @@ function snap() {
     return;
   }
 
-  // Compute the source rect inside the video that corresponds to the 3:4 viewport (object-fit: cover).
   const targetAspect = CAPTURE_WIDTH / CAPTURE_HEIGHT; // 3/4 = 0.75
   const videoAspect = vw / vh;
   let sx, sy, sw, sh;
   if (videoAspect > targetAspect) {
-    // video wider than 3:4 → crop sides
     sh = vh;
     sw = vh * targetAspect;
     sx = (vw - sw) / 2;
     sy = 0;
   } else {
-    // video taller than 3:4 → crop top/bottom
     sw = vw;
     sh = vw / targetAspect;
     sx = 0;
@@ -83,12 +98,15 @@ function snap() {
   canvas.height = CAPTURE_HEIGHT;
   const ctx = canvas.getContext('2d');
 
-  // Mirror to match the on-screen preview (which is also mirrored).
-  ctx.save();
-  ctx.translate(CAPTURE_WIDTH, 0);
-  ctx.scale(-1, 1);
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
-  ctx.restore();
+  if (facingMode === 'user') {
+    ctx.save();
+    ctx.translate(CAPTURE_WIDTH, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+    ctx.restore();
+  } else {
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+  }
 
   canvas.style.display = 'block';
   video.style.display = 'none';
@@ -99,6 +117,7 @@ function snap() {
       snapBtn.hidden = true;
       retakeBtn.hidden = false;
       useBtn.hidden = false;
+      flipBtn.disabled = true;
       setStatus('LOOKS GOOD?');
     },
     'image/jpeg',
@@ -113,6 +132,7 @@ function retake() {
   snapBtn.hidden = false;
   retakeBtn.hidden = true;
   useBtn.hidden = true;
+  flipBtn.disabled = false;
   setStatus('ALIGN FACE INSIDE THE OVAL');
 }
 
@@ -132,6 +152,7 @@ async function upload() {
     snapBtn.hidden = true;
     retakeBtn.hidden = true;
     useBtn.hidden = true;
+    flipBtn.hidden = true;
   } catch (err) {
     console.error(err);
     setStatus('UPLOAD FAILED — TRY AGAIN', 'error');
@@ -145,6 +166,7 @@ function init() {
     whoEl.textContent = '???';
     setStatus('UNKNOWN PERSON: ' + (name || '(missing)'), 'error');
     snapBtn.disabled = true;
+    flipBtn.disabled = true;
     return;
   }
   whoEl.textContent = name.toUpperCase();
@@ -152,6 +174,7 @@ function init() {
   snapBtn.addEventListener('click', snap);
   retakeBtn.addEventListener('click', retake);
   useBtn.addEventListener('click', upload);
+  flipBtn.addEventListener('click', flipCamera);
   startCamera();
 }
 
