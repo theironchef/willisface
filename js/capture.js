@@ -219,18 +219,22 @@ async function loadFromFile(file) {
     canvas.style.display = 'block';
     video.style.display = 'none';
 
-    canvas.toBlob(
-      (blob) => {
-        capturedBlob = blob;
-        snapBtn.hidden = true;
-        retakeBtn.hidden = false;
-        useBtn.hidden = false;
-        flipBtn.disabled = true;
-        setStatus('LOOKS GOOD?');
-      },
-      'image/jpeg',
-      JPEG_QUALITY,
-    );
+    await new Promise((resolve) => {
+      canvas.toBlob(
+        (blob) => { capturedBlob = blob; resolve(); },
+        'image/jpeg',
+        JPEG_QUALITY,
+      );
+    });
+
+    // Auto-submit gallery uploads — user already picked the file they
+    // wanted, no extra "use this" tap needed. The retake/use buttons
+    // appear only if upload fails so they can retry.
+    snapBtn.hidden = true;
+    retakeBtn.hidden = false;
+    useBtn.hidden = false;
+    flipBtn.disabled = true;
+    upload();
   } catch (err) {
     console.error(err);
     setStatus('PHOTO LOAD FAILED', 'error');
