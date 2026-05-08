@@ -77,11 +77,19 @@ export async function detectFace(imgOrCanvas) {
   return result;
 }
 
-// Loads an image (CORS-clean) and resolves with the HTMLImageElement.
-export function loadImage(url) {
+// Loads an image, preferring CORS-clean (so face detection can read pixels).
+// Falls back to a non-CORS load if the host doesn't return CORS headers — in
+// that case face detection will silently fail and we display the raw image.
+export async function loadImage(url) {
+  try { return await loadOnce(url, true); }
+  catch (_) { /* fall back to non-CORS */ }
+  return loadOnce(url, false);
+}
+
+function loadOnce(url, withCors) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (withCors) img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = (e) => reject(e);
     img.src = url;

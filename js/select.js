@@ -36,7 +36,21 @@ function renderCompare() {
   name2El.textContent = (state.right || '—').toUpperCase();
 }
 
+function paintLoading(canvas, label) {
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#160630';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ffd400';
+  ctx.font = "bold 28px 'Press Start 2P', monospace";
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, canvas.width / 2, canvas.height / 2);
+}
+
 async function drawSlot(canvas, name) {
+  // Track which person each canvas is currently rendering so async detection
+  // results from a stale pick can be discarded.
+  canvas.dataset.name = name || '';
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#160630';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -44,33 +58,49 @@ async function drawSlot(canvas, name) {
 
   const fileId = state.photos[name];
   if (!fileId) {
-    // No photo yet — paint the placeholder centered
     try {
       const img = await loadImage(PLACEHOLDER);
-      drawAligned(canvas, img, null);
+      if (canvas.dataset.name === name) drawAligned(canvas, img, null);
     } catch (_) { /* ignore */ }
     return;
   }
 
-  // Use cached image+eyes if available; otherwise load + detect.
-  let entry = state.cache.get(name);
-  if (!entry) {
-    try {
-      const img = await loadImage(thumbUrl(fileId, 800));
-      const eyes = await detectFace(img);
-      entry = { image: img, eyes };
-      state.cache.set(name, entry);
-    } catch (err) {
-      console.warn('failed to load/detect face for', name, err);
-      try {
-        const img = await loadImage(PLACEHOLDER);
-        drawAligned(canvas, img, null);
-      } catch (_) {}
-      return;
-    }
+  // Cache hit — render aligned immediately and exit.
+  const cached = state.cache.get(name);
+  if (cached) {
+    drawAligned(canvas, cached.image, cached.eyes);
+    return;
   }
 
-  drawAligned(canvas, entry.image, entry.eyes);
+  paintLoading(canvas, 'LOADING…');
+  let img;
+  try {
+    img = await loadImage(thumbUrl(fileId, 800));
+  } catch (err) {
+    console.warn('failed to load image for', name, err);
+    try {
+      const ph = await loadImage(PLACEHOLDER);
+      if (canvas.dataset.name === name) drawAligned(canvas, ph, null);
+    } catch (_) {}
+    return;
+  }
+
+  // Stale check after the load.
+  if (canvas.dataset.name !== name) return;
+
+  // First paint: image with no alignment (instant feedback).
+  drawAligned(canvas, img, null);
+
+  // Run detection in background; upgrade to aligned when ready.
+  detectFace(img)
+    .then((eyes) => {
+      state.cache.set(name, { image: img, eyes });
+      if (canvas.dataset.name === name) drawAligned(canvas, img, eyes);
+    })
+    .catch((err) => {
+      console.warn('detect failed for', name, err);
+      state.cache.set(name, { image: img, eyes: null });
+    });
 }
 
 function renderHint() {
