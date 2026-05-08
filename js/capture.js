@@ -17,7 +17,9 @@ const flipBtn = document.getElementById('flipBtn');
 
 let stream = null;
 let capturedBlob = null;
-let facingMode = 'user'; // 'user' | 'environment'
+let facingMode = 'user';      // 'user' | 'environment' — drives mirror behavior
+let cameras = [];             // [{ deviceId, label }, ...]
+let activeDeviceId = null;
 
 function setStatus(text, kind = '') {
   status.textContent = text;
@@ -29,28 +31,24 @@ function validName() {
 }
 
 function applyMirror() {
-  // Only mirror the selfie cam — rear cam should be true-to-life.
+  // Only mirror the selfie cam — rear cam stays true-to-life.
   viewport.classList.toggle('mirrored', facingMode === 'user');
 }
 
-async function startCamera() {
-  stopCamera();
-  applyMirror();
+function inferFacingFromLabel(label) {
+  const s = (label || '').toLowerCase();
+  if (s.includes('back') || s.includes('rear') || s.includes('environment')) return 'environment';
+  if (s.includes('front') || s.includes('user') || s.includes('selfie') || s.includes('face')) return 'user';
+  return null;
+}
+
+async function refreshCameraList() {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: facingMode },
-        width: { ideal: 1280 },
-        height: { ideal: 1707 },
-      },
-      audio: false,
-    });
-    video.srcObject = stream;
-    await video.play();
-    setStatus('ALIGN FACE INSIDE THE OVAL');
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    cameras = devices.filter((d) => d.kind === 'videoinput');
   } catch (err) {
-    console.error(err);
-    setStatus('CAMERA ACCESS DENIED', 'error');
+    console.warn('enumerateDevices failed', err);
+    cameras = [];
   }
 }
 
@@ -59,18 +57,83 @@ function stopCamera() {
     for (const t of stream.getTracks()) t.stop();
     stream = null;
   }
+  video.srcObject = null;
+}
+
+async function startWithConstraints(constraints) {
+  stopCamera();
+  stream = await navigator.mediaDevices.getUserMedia(constraints);
+  video.srcObject = stream;
+  await video.play();
+  const track = stream.getVideoTracks()[0];
+  const settings = track && track.getSettings ? track.getSettings() : {};
+  activeDeviceId = settings.deviceId || null;
+  // Refine facingMode from track settings (Chrome reports it on Android).
+  if (settings.facingMode === 'user' || settings.facingMode === 'environment') {
+    facingMode = settings.facingMode;
+  }
+  applyMirror();
+}
+
+async function startCameraInitial() {
+  try {
+    await startWithConstraints({
+      video: {
+        facingMode: { ideal: facingMode },
+        width: { ideal: 1280 },
+        height: { ideal: 1707 },
+      },
+      audio: false,
+    });
+    // Labels are only populated AFTER permission grants. Refresh now.
+    await refreshCameraList();
+    setStatus('ALIGN FACE INSIDE THE OVAL');
+  } catch (err) {
+    console.error(err);
+    setStatus('CAMERA ERROR: ' + (err.name || err.message || 'unknown'), 'error');
+  }
 }
 
 async function flipCamera() {
-  facingMode = facingMode === 'user' ? 'environment' : 'user';
   flipBtn.disabled = true;
   setStatus('SWITCHING CAMERA…');
-  await startCamera();
-  flipBtn.disabled = false;
+  try {
+    await refreshCameraList();
+    if (cameras.length < 2) {
+      setStatus('NO OTHER CAMERA FOUND', 'error');
+      return;
+    }
+
+    // Find current camera index, advance to next.
+    let idx = cameras.findIndex((c) => c.deviceId === activeDeviceId);
+    if (idx < 0) idx = 0;
+    const next = cameras[(idx + 1) % cameras.length];
+
+    // Predict facing mode from label so mirror flips correctly even before
+    // the new track's settings come back.
+    const guessed = inferFacingFromLabel(next.label);
+    if (guessed) facingMode = guessed;
+    else facingMode = facingMode === 'user' ? 'environment' : 'user';
+
+    await startWithConstraints({
+      video: {
+        deviceId: { exact: next.deviceId },
+        width: { ideal: 1280 },
+        height: { ideal: 1707 },
+      },
+      audio: false,
+    });
+    setStatus('ALIGN FACE INSIDE THE OVAL');
+  } catch (err) {
+    console.error(err);
+    setStatus('SWITCH FAILED: ' + (err.name || err.message || 'unknown'), 'error');
+  } finally {
+    flipBtn.disabled = false;
+  }
 }
 
-// Crop the live video to a 3:4 frame matching the visible viewport. Output
-// CAPTURE_WIDTH × CAPTURE_HEIGHT JPEG. Mirror only for selfie cam.
+// Crop the live video to a 3:4 frame matching the visible viewport.
+// Mirror only when using the selfie cam.
 function snap() {
   const vw = video.videoWidth;
   const vh = video.videoHeight;
@@ -79,7 +142,7 @@ function snap() {
     return;
   }
 
-  const targetAspect = CAPTURE_WIDTH / CAPTURE_HEIGHT; // 3/4 = 0.75
+  const targetAspect = CAPTURE_WIDTH / CAPTURE_HEIGHT;
   const videoAspect = vw / vh;
   let sx, sy, sw, sh;
   if (videoAspect > targetAspect) {
@@ -175,7 +238,7 @@ function init() {
   retakeBtn.addEventListener('click', retake);
   useBtn.addEventListener('click', upload);
   flipBtn.addEventListener('click', flipCamera);
-  startCamera();
+  startCameraInitial();
 }
 
 window.addEventListener('beforeunload', stopCamera);
