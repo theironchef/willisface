@@ -132,9 +132,57 @@ async function flipCamera() {
   }
 }
 
-// Crop the live video to a 3:4 frame matching the visible viewport.
-// Mirror only when using the selfie cam.
-function snap() {
+// Target framing: face occupies ~62% of output height, eyes ~38% from top.
+// Implemented as: place the face bounding box's vertical center at FACE_CY of
+// output, horizontal center at output center, and scale so face height equals
+// FACE_H_FRAC of output height. This normalizes scale + translation so users
+// just need to be in frame — exact alignment is corrected automatically.
+const FACE_H_FRAC = 0.62;
+const FACE_CX_FRAC = 0.50;
+const FACE_CY_FRAC = 0.48;
+
+async function detectFace(canvasEl) {
+  if (!('FaceDetector' in window)) return null;
+  try {
+    const fd = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+    const faces = await fd.detect(canvasEl);
+    if (faces && faces.length) return faces[0].boundingBox;
+  } catch (err) {
+    console.warn('FaceDetector failed', err);
+  }
+  return null;
+}
+
+function computeCenterCrop(vw, vh, targetAspect) {
+  if (vw / vh > targetAspect) {
+    const ch = vh, cw = vh * targetAspect;
+    return { cx: (vw - cw) / 2, cy: 0, cw, ch };
+  }
+  const cw = vw, ch = vw / targetAspect;
+  return { cx: 0, cy: (vh - ch) / 2, cw, ch };
+}
+
+function computeFaceCrop(face, vw, vh, outW, outH) {
+  const targetAspect = outW / outH;
+  const fcx = face.x + face.width / 2;
+  const fcy = face.y + face.height / 2;
+
+  let ch = face.height / FACE_H_FRAC;
+  let cw = ch * targetAspect;
+
+  // If the desired crop is bigger than the source frame, shrink to fit
+  // and accept a slightly smaller face.
+  if (cw > vw) { cw = vw; ch = cw / targetAspect; }
+  if (ch > vh) { ch = vh; cw = ch * targetAspect; }
+
+  let cx = fcx - cw * FACE_CX_FRAC;
+  let cy = fcy - ch * FACE_CY_FRAC;
+  cx = Math.max(0, Math.min(vw - cw, cx));
+  cy = Math.max(0, Math.min(vh - ch, cy));
+  return { cx, cy, cw, ch };
+}
+
+async function snap() {
   const vw = video.videoWidth;
   const vh = video.videoHeight;
   if (!vw || !vh) {
@@ -142,34 +190,31 @@ function snap() {
     return;
   }
 
-  const targetAspect = CAPTURE_WIDTH / CAPTURE_HEIGHT;
-  const videoAspect = vw / vh;
-  let sx, sy, sw, sh;
-  if (videoAspect > targetAspect) {
-    sh = vh;
-    sw = vh * targetAspect;
-    sx = (vw - sw) / 2;
-    sy = 0;
-  } else {
-    sw = vw;
-    sh = vw / targetAspect;
-    sx = 0;
-    sy = (vh - sh) / 2;
+  setStatus('FINDING FACE…');
+
+  // Render the full video frame (mirrored for selfie cam) to a temp canvas
+  // at full source resolution. We detect the face on this and then crop a
+  // 3:4 region from it for the final output, preserving max detail.
+  const tmp = document.createElement('canvas');
+  tmp.width = vw;
+  tmp.height = vh;
+  const tctx = tmp.getContext('2d');
+  if (facingMode === 'user') {
+    tctx.translate(vw, 0);
+    tctx.scale(-1, 1);
   }
+  tctx.drawImage(video, 0, 0, vw, vh);
+
+  const face = await detectFace(tmp);
+  const targetAspect = CAPTURE_WIDTH / CAPTURE_HEIGHT;
+  const crop = face
+    ? computeFaceCrop(face, vw, vh, CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    : computeCenterCrop(vw, vh, targetAspect);
 
   canvas.width = CAPTURE_WIDTH;
   canvas.height = CAPTURE_HEIGHT;
   const ctx = canvas.getContext('2d');
-
-  if (facingMode === 'user') {
-    ctx.save();
-    ctx.translate(CAPTURE_WIDTH, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
-    ctx.restore();
-  } else {
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
-  }
+  ctx.drawImage(tmp, crop.cx, crop.cy, crop.cw, crop.ch, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
 
   canvas.style.display = 'block';
   video.style.display = 'none';
@@ -181,7 +226,7 @@ function snap() {
       retakeBtn.hidden = false;
       useBtn.hidden = false;
       flipBtn.disabled = true;
-      setStatus('LOOKS GOOD?');
+      setStatus(face ? 'AUTO-ALIGNED — LOOKS GOOD?' : 'NO FACE DETECTED — LOOKS OK?');
     },
     'image/jpeg',
     JPEG_QUALITY,
