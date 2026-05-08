@@ -4,64 +4,63 @@ import { APPS_SCRIPT_URL } from './config.js';
 
 const PLACEHOLDER = './assets/placeholder.svg';
 
-const slot1 = document.getElementById('slot1');
-const slot2 = document.getElementById('slot2');
+const comparePane = document.getElementById('comparePane');
+const img1 = document.getElementById('img1');
+const img2 = document.getElementById('img2');
+const name1El = document.getElementById('name1');
+const name2El = document.getElementById('name2');
+const splitSlider = document.getElementById('splitSlider');
 const roster = document.getElementById('roster');
 const nextPick = document.getElementById('nextPick');
 
 const state = {
-  p1: null,        // name
-  p2: null,        // name
-  nextSlot: 1,     // which slot a tap fills next (1, 2, then back to 1)
+  left: null,      // name on the left side (revealed when slider moves right)
+  right: null,     // name on the right side (revealed when slider moves left)
+  nextSlot: 'left',
   photos: {},      // { name: fileId }
 };
 
-function render() {
-  renderSlot(slot1, state.p1);
-  renderSlot(slot2, state.p2);
-
-  for (const tile of roster.children) {
-    const name = tile.dataset.name;
-    tile.classList.toggle('p1', state.p1 === name);
-    tile.classList.toggle('p2', state.p2 === name);
-  }
-
-  const nextLabel = state.nextSlot === 1 ? 'PLAYER 1' : 'PLAYER 2';
-  nextPick.textContent = `TAP A FACE TO PICK ${nextLabel}`;
+function renderCompare() {
+  img1.src = state.left  ? imgSrc(state.left)  : PLACEHOLDER;
+  img2.src = state.right ? imgSrc(state.right) : PLACEHOLDER;
+  img1.classList.toggle('placeholder', !state.left);
+  img2.classList.toggle('placeholder', !state.right);
+  name1El.textContent = (state.left  || '—').toUpperCase();
+  name2El.textContent = (state.right || '—').toUpperCase();
 }
 
-function renderSlot(slotEl, name) {
-  slotEl.innerHTML = '';
-  if (!name) {
-    slotEl.classList.add('empty');
-    return;
+function renderHint() {
+  if (state.nextSlot === 'left') {
+    nextPick.textContent = 'TAP A FACE FOR THE LEFT SIDE';
+  } else {
+    nextPick.textContent = 'TAP A FACE FOR THE RIGHT SIDE';
   }
-  slotEl.classList.remove('empty');
-  const img = document.createElement('img');
-  img.src = imgSrc(name);
-  img.alt = name;
-  img.onerror = () => { img.src = PLACEHOLDER; };
-  const label = document.createElement('div');
-  label.className = 'slot-name';
-  label.textContent = name.toUpperCase();
-  slotEl.appendChild(img);
-  slotEl.appendChild(label);
+}
+
+function renderTiles() {
+  for (const tile of roster.children) {
+    const name = tile.dataset.name;
+    tile.classList.toggle('picked-left',  state.left  === name);
+    tile.classList.toggle('picked-right', state.right === name);
+  }
 }
 
 function imgSrc(name) {
   const id = state.photos[name];
-  return id ? thumbUrl(id, 600) : PLACEHOLDER;
+  return id ? thumbUrl(id, 800) : PLACEHOLDER;
 }
 
 function pick(name) {
-  if (state.nextSlot === 1) {
-    state.p1 = name;
-    state.nextSlot = 2;
+  if (state.nextSlot === 'left') {
+    state.left = name;
+    state.nextSlot = 'right';
   } else {
-    state.p2 = name;
-    state.nextSlot = 1;
+    state.right = name;
+    state.nextSlot = 'left';
   }
-  render();
+  renderCompare();
+  renderTiles();
+  renderHint();
 }
 
 function buildRoster() {
@@ -82,6 +81,12 @@ function buildRoster() {
   }
 }
 
+function setSplit(pct) {
+  comparePane.style.setProperty('--split', pct + '%');
+}
+
+splitSlider.addEventListener('input', () => setSplit(splitSlider.value));
+
 async function loadPhotos() {
   if (!APPS_SCRIPT_URL) return;
   try {
@@ -97,13 +102,14 @@ async function loadPhotos() {
         img.onerror = () => { img.src = PLACEHOLDER; tile.classList.add('placeholder'); };
       }
     }
-    if (state.p1) renderSlot(slot1, state.p1);
-    if (state.p2) renderSlot(slot2, state.p2);
+    renderCompare();
   } catch (err) {
     console.warn('listPhotos failed', err);
   }
 }
 
 buildRoster();
-render();
+renderCompare();
+renderHint();
+setSplit(50);
 loadPhotos();
