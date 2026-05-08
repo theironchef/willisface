@@ -14,6 +14,8 @@ const snapBtn = document.getElementById('snapBtn');
 const retakeBtn = document.getElementById('retakeBtn');
 const useBtn = document.getElementById('useBtn');
 const flipBtn = document.getElementById('flipBtn');
+const pickFileBtn = document.getElementById('pickFileBtn');
+const fileInput = document.getElementById('fileInput');
 
 let stream = null;
 let capturedBlob = null;
@@ -182,6 +184,62 @@ function snap() {
   );
 }
 
+// Load a user-picked image, center-crop it to the same 3:4 aspect, and
+// route into the same retake/use flow as a camera snap.
+async function loadFromFile(file) {
+  if (!file) return;
+  setStatus('LOADING PHOTO…');
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('image decode failed'));
+      img.src = url;
+    });
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    if (!iw || !ih) throw new Error('image has zero dimensions');
+
+    const targetAspect = CAPTURE_WIDTH / CAPTURE_HEIGHT;
+    const ia = iw / ih;
+    let sx, sy, sw, sh;
+    if (ia > targetAspect) {
+      sh = ih; sw = sh * targetAspect;
+      sx = (iw - sw) / 2; sy = 0;
+    } else {
+      sw = iw; sh = sw / targetAspect;
+      sx = 0; sy = (ih - sh) / 2;
+    }
+
+    canvas.width = CAPTURE_WIDTH;
+    canvas.height = CAPTURE_HEIGHT;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+
+    canvas.style.display = 'block';
+    video.style.display = 'none';
+
+    canvas.toBlob(
+      (blob) => {
+        capturedBlob = blob;
+        snapBtn.hidden = true;
+        retakeBtn.hidden = false;
+        useBtn.hidden = false;
+        flipBtn.disabled = true;
+        setStatus('LOOKS GOOD?');
+      },
+      'image/jpeg',
+      JPEG_QUALITY,
+    );
+  } catch (err) {
+    console.error(err);
+    setStatus('PHOTO LOAD FAILED', 'error');
+  } finally {
+    URL.revokeObjectURL(url);
+    fileInput.value = ''; // allow re-selecting the same file
+  }
+}
+
 function retake() {
   capturedBlob = null;
   canvas.style.display = 'none';
@@ -232,6 +290,8 @@ function init() {
   retakeBtn.addEventListener('click', retake);
   useBtn.addEventListener('click', upload);
   flipBtn.addEventListener('click', flipCamera);
+  pickFileBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => loadFromFile(e.target.files && e.target.files[0]));
   startCameraInitial();
 }
 
