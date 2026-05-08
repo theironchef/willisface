@@ -58,37 +58,73 @@ function paintEmpty(canvas) {
 
 // Loads an image (preferring the Apps Script proxy for CORS-clean bytes
 // so face detection can read pixels) and runs detection on it. Cached.
+// Always resolves with an entry — image may be null on hard failure.
 async function ensureEntry(name) {
   if (state.cache.has(name)) return state.cache.get(name);
   if (state.loading.has(name)) return state.loading.get(name);
 
   const fileId = state.photos[name];
   const promise = (async () => {
-    if (!fileId) {
-      const image = await loadImage(PLACEHOLDER);
-      const entry = { image, landmarks: null, sourceLabel: 'placeholder' };
+    let entry = { image: null, landmarks: null, sourceLabel: 'error' };
+    try {
+      if (!fileId) {
+        entry.image = await loadImage(PLACEHOLDER);
+        entry.sourceLabel = 'placeholder';
+      } else {
+        // Proxy first (returns a data: URL — same-origin, CORS-clean).
+        let url = await fetchImageDataUrl(fileId);
+        let sourceLabel = 'proxy';
+        if (!url) { url = thumbUrl(fileId, 800); sourceLabel = 'thumb'; }
+        try {
+          entry.image = await loadImage(url);
+          entry.sourceLabel = sourceLabel;
+        } catch (err) {
+          console.warn('image load failed for', name, '(' + sourceLabel + ')', err);
+          // Try the other source as a fallback.
+          const otherUrl = sourceLabel === 'proxy' ? thumbUrl(fileId, 800) : null;
+          if (otherUrl) {
+            try {
+              entry.image = await loadImage(otherUrl);
+              entry.sourceLabel = sourceLabel === 'proxy' ? 'thumb' : 'proxy';
+            } catch (err2) {
+              console.error('both sources failed for', name, err2);
+            }
+          }
+        }
+        if (entry.image) {
+          if (!entry.image.naturalWidth || !entry.image.naturalHeight) {
+            console.warn('image has zero dimensions for', name);
+            entry.image = null;
+            entry.sourceLabel = 'zerodim';
+          } else {
+            try { entry.landmarks = await detectFace(entry.image); }
+            catch (err) { console.warn('detect threw for', name, err); }
+            if (!entry.landmarks) console.warn('no face landmarks for', name);
+            else                  console.log('landmarks for', name, entry.landmarks);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('ensureEntry failed for', name, err);
+    } finally {
       state.cache.set(name, entry);
       state.loading.delete(name);
-      return entry;
     }
-
-    // Proxy first (returns a data: URL — same-origin, CORS-clean).
-    let url = await fetchImageDataUrl(fileId);
-    let sourceLabel = 'proxy';
-    if (!url) { url = thumbUrl(fileId, 800); sourceLabel = 'thumb'; }
-    const image = await loadImage(url);
-    let landmarks = null;
-    try { landmarks = await detectFace(image); }
-    catch (err) { console.warn('detect threw for', name, err); }
-    if (!landmarks) console.warn('no face landmarks for', name, '(source=' + sourceLabel + ')');
-    else            console.log('landmarks for', name, landmarks);
-    const entry = { image, landmarks, sourceLabel };
-    state.cache.set(name, entry);
-    state.loading.delete(name);
     return entry;
   })();
   state.loading.set(name, promise);
   return promise;
+}
+
+function paintError(canvas, label) {
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#160630';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ff2222';
+  ctx.font = "bold 22px 'Press Start 2P', monospace";
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label || 'LOAD FAILED', canvas.width / 2, canvas.height / 2);
 }
 
 function setDebugStatus(text) {
@@ -122,20 +158,18 @@ async function renderCompare() {
   // Both panes get transformed to the SAME canonical target, so eye
   // midpoints land at canvas X=50% — putting both face centerlines on
   // the split divider.
-  if (leftEntry) {
-    if (leftEntry.landmarks && leftEntry.landmarks.leftEye && leftEntry.landmarks.rightEye) {
-      drawAligned(cv1, leftEntry.image, leftEntry.landmarks);
+  function drawSlot(canvas, entry) {
+    if (!entry) return;
+    if (!entry.image) { paintError(canvas, 'LOAD FAILED'); return; }
+    const lm = entry.landmarks;
+    if (lm && lm.leftEye && lm.rightEye && lm.box && lm.box.height > 0) {
+      drawAligned(canvas, entry.image, lm);
     } else {
-      drawCoverOnly(cv1, leftEntry.image);
+      drawCoverOnly(canvas, entry.image);
     }
   }
-  if (rightEntry) {
-    if (rightEntry.landmarks && rightEntry.landmarks.leftEye && rightEntry.landmarks.rightEye) {
-      drawAligned(cv2, rightEntry.image, rightEntry.landmarks);
-    } else {
-      drawCoverOnly(cv2, rightEntry.image);
-    }
-  }
+  drawSlot(cv1, leftEntry);
+  drawSlot(cv2, rightEntry);
 
   if (state.debug) {
     const targets = canonicalTargets(COMPARE_W, COMPARE_H);
