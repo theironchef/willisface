@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>WILLISFACE :: CAPTURE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body class="capture-page">
+  <div class="capture-title">PHOTO FOR <span id="who" class="capture-name">?</span></div>
+
+  <div class="viewport" id="viewport">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <svg class="overlay-svg" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <mask id="cutout">
+          <rect width="300" height="400" fill="white"/>
+          <ellipse cx="150" cy="170" rx="92" ry="118" fill="black"/>
+        </mask>
+      </defs>
+      <!-- darken outside the oval -->
+      <rect width="300" height="400" fill="rgba(0,0,0,0.45)" mask="url(#cutout)"/>
+      <!-- oval guide -->
+      <ellipse cx="150" cy="170" rx="92" ry="118"
+               fill="none" stroke="#ffd400" stroke-width="3" stroke-dasharray="6 4"/>
+      <!-- eye line -->
+      <line x1="58" y1="148" x2="242" y2="148" stroke="#00f0ff" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.8"/>
+      <!-- chin marker -->
+      <line x1="120" y1="270" x2="180" y2="270" stroke="#ff2e88" stroke-width="2" opacity="0.8"/>
+      <!-- corner crosshairs -->
+      <g stroke="#ffd400" stroke-width="2" fill="none">
+        <path d="M10,10 H30 M10,10 V30"/>
+        <path d="M290,10 H270 M290,10 V30"/>
+        <path d="M10,390 H30 M10,390 V370"/>
+        <path d="M290,390 H270 M290,390 V370"/>
+      </g>
+    </svg>
+  </div>
+
+  <div id="status" class="status">ALIGN FACE INSIDE THE OVAL</div>
+
+  <div class="controls">
+    <button id="snapBtn" class="btn">SNAP</button>
+    <button id="retakeBtn" class="btn secondary" hidden>RETAKE</button>
+    <button id="useBtn" class="btn" hidden>USE THIS</button>
+  </div>
+
+  <div class="controls">
+    <a class="btn secondary" href="./index.html">BACK</a>
+  </div>
+
+  <script type="module" src="./js/capture.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WILLISFACE :: QR CODES</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+</head>
+<body>
+  <h1 class="title">WILLISFACE</h1>
+  <div class="subtitle">SCAN TO TAKE YOUR PHOTO</div>
+  <div class="no-print" style="text-align:center;margin:8px;">
+    <button class="btn secondary" onclick="window.print()">PRINT</button>
+    <a class="btn secondary" href="./index.html">BACK</a>
+  </div>
+  <div id="qrGrid" class="qr-grid"></div>
+  <script type="module" src="./js/qr.js"></script>
+</body>
+</html>
