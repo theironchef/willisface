@@ -107,7 +107,7 @@ function loadOnce(url, withCors) {
 export const CANONICAL = {
   eyeCx:    0.50, // eye midpoint X (fraction of canvas width)
   eyeCy:    0.42, // eye midpoint Y (fraction of canvas height)
-  faceHFrac: 0.70, // face bounding-box height as fraction of canvas height
+  faceHFrac: 0.50, // face bounding-box height as fraction of canvas height
 };
 
 // Returns the canonical landmark target positions in canvas pixel coords
