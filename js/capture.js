@@ -137,9 +137,9 @@ async function flipCamera() {
 // output, horizontal center at output center, and scale so face height equals
 // FACE_H_FRAC of output height. This normalizes scale + translation so users
 // just need to be in frame — exact alignment is corrected automatically.
-const FACE_H_FRAC = 0.62;
+const FACE_H_FRAC = 0.55;
 const FACE_CX_FRAC = 0.50;
-const FACE_CY_FRAC = 0.48;
+const FACE_CY_FRAC = 0.56;
 
 // Cross-platform face detection: native FaceDetector (Android Chrome) when
 // available, MediaPipe Tasks Vision FaceDetector as fallback (iOS Safari etc.).
