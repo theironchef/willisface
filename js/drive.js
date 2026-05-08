@@ -35,6 +35,23 @@ export function thumbUrl(fileId, size = 600) {
   return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w${size}`;
 }
 
+// Fetch the file via the Apps Script proxy as a data: URL — guaranteed
+// CORS-clean (the Apps Script Web App returns JSON with the same-origin
+// fetch). Returns null if the proxy isn't configured or returned an error.
+// Requires the apps-script Code.gs to handle ?action=image (added 2026-05-08).
+export async function fetchImageDataUrl(fileId) {
+  if (!APPS_SCRIPT_URL) return null;
+  try {
+    const url = `${APPS_SCRIPT_URL}?action=image&id=${encodeURIComponent(fileId)}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (!json || !json.ok || !json.b64) return null;
+    return `data:${json.mime || 'image/jpeg'};base64,${json.b64}`;
+  } catch (_) {
+    return null;
+  }
+}
+
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();

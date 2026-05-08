@@ -156,13 +156,6 @@ body {
 .compare-names .name-left  { color: var(--neon-cyan); }
 .compare-names .name-right { color: var(--neon-pink); }
 
-.compare-tools {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  padding: 6px 0 4px;
-}
-
 .btn-mini {
   font-family: 'Press Start 2P', monospace;
   font-size: 9px;
@@ -179,6 +172,21 @@ body {
   border-color: var(--muted);
 }
 .btn-mini:active { transform: translate(1px, 1px); }
+
+.debug-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 4px;
+}
+.debug-status {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--neon-yellow);
+  text-shadow: 1px 1px 0 #000;
+}
 
 .next-pick {
   text-align: center;

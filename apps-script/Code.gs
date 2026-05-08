@@ -64,6 +64,24 @@ function doGet(e) {
     }
     return jsonResponse(out);
   }
+  if (action === 'image') {
+    // Returns the image as a base64 JSON payload so the front-end can
+    // build a data: URL. This avoids CORS issues with Drive's CDN that
+    // would otherwise prevent face detection from reading pixels.
+    const id = e.parameter.id;
+    if (!id) return jsonResponse({ error: 'missing id' });
+    try {
+      const file = DriveApp.getFileById(id);
+      const blob = file.getBlob();
+      return jsonResponse({
+        ok: true,
+        mime: blob.getContentType() || 'image/jpeg',
+        b64: Utilities.base64Encode(blob.getBytes()),
+      });
+    } catch (err) {
+      return jsonResponse({ error: String(err) });
+    }
+  }
   return jsonResponse({ error: 'unknown action' });
 }
 

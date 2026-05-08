@@ -1,13 +1,14 @@
 import { PEOPLE } from './people.js';
-import { listPhotos, thumbUrl } from './drive.js';
+import { listPhotos, thumbUrl, fetchImageDataUrl } from './drive.js';
 import { APPS_SCRIPT_URL } from './config.js';
 import {
-  detectFace,
   loadImage,
+  detectFace,
   preloadDetector,
   drawCoverOnly,
   drawAlignedToTarget,
-  coverEyesOnCanvas,
+  drawLandmarkMarkers,
+  landmarksOnCanvas,
 } from './face.js';
 
 const PLACEHOLDER = './assets/placeholder.svg';
@@ -21,7 +22,8 @@ const cv2 = document.getElementById('cv2');
 const name1El = document.getElementById('name1');
 const name2El = document.getElementById('name2');
 const splitSlider = document.getElementById('splitSlider');
-const alignBtn = document.getElementById('alignBtn');
+const debugBtn = document.getElementById('debugBtn');
+const debugStatusEl = document.getElementById('debugStatus');
 const roster = document.getElementById('roster');
 const nextPick = document.getElementById('nextPick');
 
@@ -31,13 +33,11 @@ const state = {
   left: null,
   right: null,
   nextSlot: 'left',
-  align: true,                     // when false, both panes render cover-fit
-  photos: {},                      // { name: fileId }
-  cache: new Map(),                // name -> { image, eyes }
-  loading: new Map(),              // name -> Promise<{image, eyes}>
+  debug: true,
+  photos: {},
+  cache: new Map(),    // name -> { image, landmarks, sourceLabel }
+  loading: new Map(),  // name -> Promise<entry>
 };
-
-// ---------- helpers ----------
 
 function paintLoading(canvas, label) {
   const ctx = canvas.getContext('2d');
@@ -56,21 +56,33 @@ function paintEmpty(canvas) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
-// Load image + run detection once per name. Cached for fast re-render.
+// Loads an image (preferring the Apps Script proxy for CORS-clean bytes
+// so face detection can read pixels) and runs detection on it. Cached.
 async function ensureEntry(name) {
   if (state.cache.has(name)) return state.cache.get(name);
   if (state.loading.has(name)) return state.loading.get(name);
 
   const fileId = state.photos[name];
   const promise = (async () => {
-    const url = fileId ? thumbUrl(fileId, 800) : PLACEHOLDER;
-    const image = await loadImage(url);
-    let eyes = null;
-    if (fileId) {
-      try { eyes = await detectFace(image); }
-      catch (_) { /* CORS-tainted or detector unavailable */ }
+    if (!fileId) {
+      const image = await loadImage(PLACEHOLDER);
+      const entry = { image, landmarks: null, sourceLabel: 'placeholder' };
+      state.cache.set(name, entry);
+      state.loading.delete(name);
+      return entry;
     }
-    const entry = { image, eyes };
+
+    // Proxy first (returns a data: URL — same-origin, CORS-clean).
+    let url = await fetchImageDataUrl(fileId);
+    let sourceLabel = 'proxy';
+    if (!url) { url = thumbUrl(fileId, 800); sourceLabel = 'thumb'; }
+    const image = await loadImage(url);
+    let landmarks = null;
+    try { landmarks = await detectFace(image); }
+    catch (err) { console.warn('detect threw for', name, err); }
+    if (!landmarks) console.warn('no face landmarks for', name, '(source=' + sourceLabel + ')');
+    else            console.log('landmarks for', name, landmarks);
+    const entry = { image, landmarks, sourceLabel };
     state.cache.set(name, entry);
     state.loading.delete(name);
     return entry;
@@ -79,51 +91,78 @@ async function ensureEntry(name) {
   return promise;
 }
 
-// ---------- main render ----------
+function setDebugStatus(text) {
+  debugStatusEl.textContent = text;
+}
+
+function fmtMark(landmarks) {
+  if (!landmarks) return '✗';
+  const have = ['leftEye', 'rightEye', 'nose', 'mouth'].filter((k) => landmarks[k]).length;
+  return `${have}/4`;
+}
+
+let renderToken = 0;
 
 async function renderCompare() {
-  // Mark canvases with the current pick so async results can be discarded
-  // when stale. dataset.token is bumped on every render to support that.
-  const token = String(Date.now()) + Math.random();
-  cv1.dataset.token = token;
-  cv2.dataset.token = token;
+  const token = ++renderToken;
 
-  // Always update name labels immediately.
   name1El.textContent = (state.left  || '—').toUpperCase();
   name2El.textContent = (state.right || '—').toUpperCase();
 
-  // Stage 1: paint loading / empty / placeholder so the user sees a response.
   if (state.left)  paintLoading(cv1, 'LOADING…'); else paintEmpty(cv1);
   if (state.right) paintLoading(cv2, 'LOADING…'); else paintEmpty(cv2);
+  setDebugStatus('LOADING…');
 
-  // Stage 2: kick off any required loads in parallel.
-  const leftP  = state.left  ? ensureEntry(state.left)  : Promise.resolve(null);
-  const rightP = state.right ? ensureEntry(state.right) : Promise.resolve(null);
-  const [leftEntry, rightEntry] = await Promise.all([leftP, rightP]).catch(() => [null, null]);
+  const leftP  = state.left  ? ensureEntry(state.left).catch(() => null)  : Promise.resolve(null);
+  const rightP = state.right ? ensureEntry(state.right).catch(() => null) : Promise.resolve(null);
+  const [leftEntry, rightEntry] = await Promise.all([leftP, rightP]);
 
-  // Bail if a fresher render started while we were waiting.
-  if (cv1.dataset.token !== token) return;
+  if (renderToken !== token) return;
 
-  // Stage 3: draw.
-  const aligning = state.align;
-
-  // LEFT pane: always cover-fit (it's the reference framing).
+  // LEFT pane — cover-fit (acts as the framing reference).
   if (leftEntry) drawCoverOnly(cv1, leftEntry.image);
 
-  // RIGHT pane: when alignment is ON and we have eyes for both faces,
-  // similarity-transform right's image so its eyes land exactly where
-  // left's eyes landed on cv1. Otherwise fall back to cover-fit.
+  // Compute LEFT landmarks in canvas coords (post-cover).
+  const leftOnCv = leftEntry
+    ? landmarksOnCanvas(leftEntry.image, leftEntry.landmarks, COMPARE_W, COMPARE_H)
+    : null;
+
+  // RIGHT pane — similarity-transformed so its eyes land on LEFT's eye
+  // positions. Falls back to cover-fit if either side lacks landmarks.
   if (rightEntry) {
-    if (aligning && leftEntry && leftEntry.eyes && rightEntry.eyes) {
-      const targetEyes = coverEyesOnCanvas(leftEntry.image, leftEntry.eyes, COMPARE_W, COMPARE_H);
-      drawAlignedToTarget(cv2, rightEntry.image, rightEntry.eyes, targetEyes);
+    if (leftOnCv && rightEntry.landmarks &&
+        rightEntry.landmarks.leftEye && rightEntry.landmarks.rightEye) {
+      drawAlignedToTarget(cv2, rightEntry.image, rightEntry.landmarks, leftOnCv);
     } else {
       drawCoverOnly(cv2, rightEntry.image);
     }
   }
+
+  if (state.debug) {
+    if (leftEntry && leftOnCv) drawLandmarkMarkers(cv1, leftOnCv);
+    if (rightEntry && leftOnCv) drawLandmarkMarkers(cv2, leftOnCv);
+  }
+
+  // Status text.
+  const lTag = leftEntry  ? fmtMark(leftEntry.landmarks)  : '—';
+  const rTag = rightEntry ? fmtMark(rightEntry.landmarks) : '—';
+  const lSrc = leftEntry  ? leftEntry.sourceLabel  : '—';
+  const rSrc = rightEntry ? rightEntry.sourceLabel : '—';
+  setDebugStatus(`L: ${lTag} (${lSrc})   R: ${rTag} (${rSrc})`);
 }
 
-// ---------- UI wiring ----------
+// ---------- UI ----------
+
+function refreshDebugBtn() {
+  debugBtn.textContent = state.debug ? 'DEBUG: ON' : 'DEBUG: OFF';
+  debugBtn.classList.toggle('off', !state.debug);
+}
+
+debugBtn.addEventListener('click', () => {
+  state.debug = !state.debug;
+  refreshDebugBtn();
+  renderCompare();
+});
 
 function renderHint() {
   nextPick.textContent =
@@ -175,17 +214,7 @@ function setSplit(pct) {
   comparePane.style.setProperty('--split', pct + '%');
 }
 
-function refreshAlignBtn() {
-  alignBtn.textContent = state.align ? 'ALIGN: ON' : 'ALIGN: OFF';
-  alignBtn.classList.toggle('off', !state.align);
-}
-
 splitSlider.addEventListener('input', () => setSplit(splitSlider.value));
-alignBtn.addEventListener('click', () => {
-  state.align = !state.align;
-  refreshAlignBtn();
-  renderCompare();
-});
 
 async function loadPhotos() {
   if (!APPS_SCRIPT_URL) return;
@@ -209,7 +238,7 @@ async function loadPhotos() {
 }
 
 buildRoster();
-refreshAlignBtn();
+refreshDebugBtn();
 renderCompare();
 renderHint();
 setSplit(50);

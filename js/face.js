@@ -59,20 +59,20 @@ export async function detectFace(imgOrCanvas) {
   };
 
   // BlazeFace short-range keypoints (in subject perspective):
-  // 0=right_eye, 1=left_eye, 2=nose, 3=mouth, 4=right_ear, 5=left_ear
-  // Coordinates from Tasks Vision come in pixel space already (they are
-  // typed as `NormalizedKeypoint` but the values are pixels for IMAGE mode
-  // when run on an HTMLImageElement / HTMLCanvasElement — so we don't
-  // multiply by W/H). We sort by x to label viewer-left vs viewer-right.
-  if (det.keypoints && det.keypoints.length >= 2) {
-    const a = { x: det.keypoints[0].x, y: det.keypoints[0].y };
-    const b = { x: det.keypoints[1].x, y: det.keypoints[1].y };
-    // Some pipeline versions normalize to [0,1] — if both x,y < ~2 we treat as normalized.
-    if (a.x <= 1.5 && a.y <= 1.5 && b.x <= 1.5 && b.y <= 1.5) {
-      a.x *= W; a.y *= H; b.x *= W; b.y *= H;
-    }
-    if (a.x < b.x) { result.leftEye = a; result.rightEye = b; }
-    else           { result.leftEye = b; result.rightEye = a; }
+  // 0=right_eye, 1=left_eye, 2=nose_tip, 3=mouth, 4=right_ear, 5=left_ear
+  // Tasks Vision sometimes returns normalized [0,1], sometimes pixel coords.
+  // We auto-detect by magnitude.
+  const kps = det.keypoints || [];
+  if (kps.length >= 2) {
+    const raw = kps.map((p) => ({ x: p.x, y: p.y }));
+    const allSmall = raw.every((p) => p.x <= 1.5 && p.y <= 1.5);
+    if (allSmall) for (const p of raw) { p.x *= W; p.y *= H; }
+    // Sort eyes (first two keypoints) so viewer-left has lower x.
+    const a = raw[0], b = raw[1];
+    if (a.x < b.x) { result.leftEye = a;  result.rightEye = b; }
+    else           { result.leftEye = b;  result.rightEye = a; }
+    if (raw[2]) result.nose  = raw[2];
+    if (raw[3]) result.mouth = raw[3];
   }
   return result;
 }
@@ -157,20 +157,28 @@ function drawCover(ctx, image, W, H) {
   ctx.drawImage(image, r.sx, r.sy, r.sw, r.sh, 0, 0, W, H);
 }
 
-// Given an image, detected source-pixel eyes, and a canvas size W/H,
-// return where those eyes will land on the canvas after a cover-fit
-// draw. Used by the compare page to make the LEFT face the reference
-// and align the RIGHT face to the same eye positions.
-export function coverEyesOnCanvas(image, eyes, W, H) {
-  if (!eyes || !eyes.leftEye || !eyes.rightEye) return null;
+// Maps source-pixel landmark coords to canvas coords after a cover-fit
+// draw of `image` into a W×H canvas. Used by the compare page to know
+// where the LEFT face's landmarks are visible, so the RIGHT face can be
+// aligned to those same canvas positions.
+export function landmarksOnCanvas(image, landmarks, W, H) {
+  if (!landmarks) return null;
   const r = coverRect(image, W, H);
   const sx = (p) => (p.x - r.sx) * (W / r.sw);
   const sy = (p) => (p.y - r.sy) * (H / r.sh);
-  return {
-    leftEye:  { x: sx(eyes.leftEye),  y: sy(eyes.leftEye)  },
-    rightEye: { x: sx(eyes.rightEye), y: sy(eyes.rightEye) },
+  const map = (p) => (p ? { x: sx(p), y: sy(p) } : null);
+  const out = {
+    leftEye:  map(landmarks.leftEye),
+    rightEye: map(landmarks.rightEye),
+    nose:     map(landmarks.nose),
+    mouth:    map(landmarks.mouth),
   };
+  if (!out.leftEye || !out.rightEye) return null;
+  return out;
 }
+
+// Backwards-compat alias.
+export const coverEyesOnCanvas = landmarksOnCanvas;
 
 // Render `image` into `canvas` with a similarity transform that lands its
 // detected `eyes` exactly on `targetEyes` (in canvas coords). Falls back to
@@ -223,3 +231,61 @@ export function drawCoverOnly(canvas, image) {
   ctx.fillRect(0, 0, W, H);
   drawCover(ctx, image, W, H);
 }
+
+// Draw `image` cover-fit, with a manual transform (translate, scale,
+// rotate) applied around the canvas center. Used for user-driven
+// manual face alignment on the right pane.
+export function drawCoverWithTransform(canvas, image, t) {
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#160630';
+  ctx.fillRect(0, 0, W, H);
+  if (!image) return;
+  const r = coverRect(image, W, H);
+  const tx = (t && t.tx) || 0;
+  const ty = (t && t.ty) || 0;
+  const scale = (t && typeof t.scale === 'number') ? t.scale : 1;
+  const rotation = (t && typeof t.rotation === 'number') ? t.rotation : 0;
+  ctx.save();
+  ctx.translate(W / 2 + tx, H / 2 + ty);
+  ctx.rotate(rotation);
+  ctx.scale(scale, scale);
+  ctx.drawImage(image, r.sx, r.sy, r.sw, r.sh, -W / 2, -H / 2, W, H);
+  ctx.restore();
+}
+
+// Debug overlay: draws markers at each landmark on the canvas.
+// Eyes = green, nose = yellow, mouth = pink.
+export function drawLandmarkMarkers(canvas, landmarksOnCv) {
+  if (!landmarksOnCv) return;
+  const ctx = canvas.getContext('2d');
+  const dot = (p, color, r = 12) => {
+    if (!p) return;
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  };
+  ctx.save();
+  dot(landmarksOnCv.leftEye,  '#00ff66', 14);
+  dot(landmarksOnCv.rightEye, '#00ff66', 14);
+  dot(landmarksOnCv.nose,     '#ffd400', 12);
+  dot(landmarksOnCv.mouth,    '#ff2e88', 12);
+  // Eye line
+  if (landmarksOnCv.leftEye && landmarksOnCv.rightEye) {
+    ctx.strokeStyle = '#00ff66';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(landmarksOnCv.leftEye.x, landmarksOnCv.leftEye.y);
+    ctx.lineTo(landmarksOnCv.rightEye.x, landmarksOnCv.rightEye.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Backwards-compat alias.
+export const drawEyeMarkers = drawLandmarkMarkers;
