@@ -131,14 +131,18 @@ function setDebugStatus(text) {
   debugStatusEl.textContent = text;
 }
 
-function fmtSlot(entry) {
+function fmtSlot(entry, transform) {
   if (!entry) return '—';
   if (!entry.image) return 'noimg';
   const lm = entry.landmarks;
   if (!lm) return 'no-detect';
   const have = ['leftEye', 'rightEye', 'nose', 'mouth'].filter((k) => lm[k]).length;
   const aligned = !!(lm.leftEye && lm.rightEye && lm.box && lm.box.height > 0);
-  return `${have}/4 ${aligned ? 'ALIGNED' : 'COVER'}`;
+  let tag = `${have}/4 ${aligned ? 'ALIGNED' : 'COVER'}`;
+  if (aligned && transform) {
+    tag += ` ${transform.angleDeg.toFixed(1)}° ×${transform.scale.toFixed(2)}`;
+  }
+  return tag;
 }
 
 let renderToken = 0;
@@ -175,18 +179,22 @@ async function renderCompare() {
   drawSlot(cv1, leftEntry);
   drawSlot(cv2, rightEntry);
 
+  // Compute aligned landmarks once — used both for the visible status
+  // line (rotation/scale numbers) and for debug overlay markers.
+  const leftAligned  = leftEntry  && leftEntry.landmarks  ? alignedLandmarksOnCanvas(cv1, leftEntry.landmarks)  : null;
+  const rightAligned = rightEntry && rightEntry.landmarks ? alignedLandmarksOnCanvas(cv2, rightEntry.landmarks) : null;
+
   if (state.debug) {
-    const leftAligned  = leftEntry  && leftEntry.landmarks  ? alignedLandmarksOnCanvas(cv1, leftEntry.landmarks)  : null;
-    const rightAligned = rightEntry && rightEntry.landmarks ? alignedLandmarksOnCanvas(cv2, rightEntry.landmarks) : null;
     if (leftEntry)  drawLandmarkMarkers(cv1, leftAligned);
     if (rightEntry) drawLandmarkMarkers(cv2, rightAligned);
     if (leftAligned)  console.log('LEFT  transform:',  leftAligned.transform);
     if (rightAligned) console.log('RIGHT transform:', rightAligned.transform);
   }
 
-  // Status text.
-  const lTag = fmtSlot(leftEntry);
-  const rTag = fmtSlot(rightEntry);
+  // Status text — angle and scale numbers prove rotation/scaling is real
+  // even though the post-alignment eye line is always horizontal by design.
+  const lTag = fmtSlot(leftEntry,  leftAligned  && leftAligned.transform);
+  const rTag = fmtSlot(rightEntry, rightAligned && rightAligned.transform);
   const lSrc = leftEntry  ? leftEntry.sourceLabel  : '—';
   const rSrc = rightEntry ? rightEntry.sourceLabel : '—';
   setDebugStatus(`L: ${lTag} (${lSrc})   R: ${rTag} (${rSrc})`);
