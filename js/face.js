@@ -107,7 +107,7 @@ function loadOnce(url, withCors) {
 export const CANONICAL = {
   eyeCx:    0.50, // eye midpoint X (fraction of canvas width)
   eyeCy:    0.42, // eye midpoint Y (fraction of canvas height)
-  faceHFrac: 0.50, // face bounding-box height as fraction of canvas height
+  faceHFrac: 0.40, // face bounding-box height as fraction of canvas height
 };
 
 // Returns the canonical landmark target positions in canvas pixel coords.
@@ -319,10 +319,30 @@ export function drawCoverWithTransform(canvas, image, t) {
 }
 
 // Debug overlay: draws markers at each landmark on the canvas.
-// Eyes = green, nose = yellow, mouth = pink.
-export function drawLandmarkMarkers(canvas, landmarksOnCv) {
-  if (!landmarksOnCv) return;
+// Eyes = green, nose = yellow, mouth = pink. Also draws canonical
+// alignment axes (yellow vertical at X=50%, horizontal at eye Y) —
+// if alignment works, the face centerline overlaps the vertical axis
+// and the eye line overlaps the horizontal axis.
+export function drawLandmarkMarkers(canvas, landmarksOnCv, opts = CANONICAL) {
   const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.save();
+
+  // Canonical axes — same on every canvas, so when both faces are
+  // aligned their centerlines and eye lines must coincide with these.
+  ctx.strokeStyle = 'rgba(255, 212, 0, 0.6)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(W * opts.eyeCx, 0);
+  ctx.lineTo(W * opts.eyeCx, H);
+  ctx.moveTo(0, H * opts.eyeCy);
+  ctx.lineTo(W, H * opts.eyeCy);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (!landmarksOnCv) { ctx.restore(); return; }
+
   const dot = (p, color, r = 12) => {
     if (!p) return;
     ctx.beginPath();
@@ -333,12 +353,14 @@ export function drawLandmarkMarkers(canvas, landmarksOnCv) {
     ctx.fill();
     ctx.stroke();
   };
-  ctx.save();
+
   dot(landmarksOnCv.leftEye,  '#00ff66', 14);
   dot(landmarksOnCv.rightEye, '#00ff66', 14);
   dot(landmarksOnCv.nose,     '#ffd400', 12);
   dot(landmarksOnCv.mouth,    '#ff2e88', 12);
-  // Eye line
+
+  // Connect eye + nose + mouth so the face axis is visible. If alignment
+  // is correct, this polyline is vertical and bisects the face.
   if (landmarksOnCv.leftEye && landmarksOnCv.rightEye) {
     ctx.strokeStyle = '#00ff66';
     ctx.lineWidth = 3;
@@ -347,6 +369,21 @@ export function drawLandmarkMarkers(canvas, landmarksOnCv) {
     ctx.lineTo(landmarksOnCv.rightEye.x, landmarksOnCv.rightEye.y);
     ctx.stroke();
   }
+  // Vertical face axis: eye midpoint → mouth (or nose if no mouth).
+  if (landmarksOnCv.leftEye && landmarksOnCv.rightEye) {
+    const cxL = (landmarksOnCv.leftEye.x + landmarksOnCv.rightEye.x) / 2;
+    const cyL = (landmarksOnCv.leftEye.y + landmarksOnCv.rightEye.y) / 2;
+    const tail = landmarksOnCv.mouth || landmarksOnCv.nose;
+    if (tail) {
+      ctx.strokeStyle = '#ff2e88';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cxL, cyL);
+      ctx.lineTo(tail.x, tail.y);
+      ctx.stroke();
+    }
+  }
+
   ctx.restore();
 }
 
