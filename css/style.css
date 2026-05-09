@@ -362,6 +362,31 @@ body {
   white-space: nowrap;
 }
 
+/* Fullscreen modal-style overlay shown during photo upload. */
+.upload-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.upload-overlay[hidden] { display: none; }
+.upload-overlay-text {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 24px;
+  letter-spacing: 2px;
+  color: var(--neon-yellow);
+  text-shadow:
+    2px 2px 0 var(--neon-pink),
+    0 0 18px rgba(255, 212, 0, 0.6);
+  text-align: center;
+  line-height: 1.6;
+}
+.upload-overlay-text.ok    { color: var(--neon-yellow); }
+.upload-overlay-text.error { color: var(--neon-red); text-shadow: 2px 2px 0 #000; }
+
 .status {
   font-family: 'Press Start 2P', monospace;
   font-size: 11px;

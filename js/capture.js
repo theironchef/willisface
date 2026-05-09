@@ -16,6 +16,8 @@ const useBtn = document.getElementById('useBtn');
 const flipBtn = document.getElementById('flipBtn');
 const pickFileBtn = document.getElementById('pickFileBtn');
 const fileInput = document.getElementById('fileInput');
+const uploadOverlay = document.getElementById('uploadOverlay');
+const uploadOverlayText = document.getElementById('uploadOverlayText');
 
 let stream = null;
 let capturedBlob = null;
@@ -26,6 +28,16 @@ let activeDeviceId = null;
 function setStatus(text, kind = '') {
   status.textContent = text;
   status.className = 'status' + (kind ? ' ' + kind : '');
+}
+
+function showOverlay(text, kind = '') {
+  uploadOverlayText.textContent = text;
+  uploadOverlayText.className = 'upload-overlay-text' + (kind ? ' ' + kind : '');
+  uploadOverlay.hidden = false;
+}
+
+function hideOverlay() {
+  uploadOverlay.hidden = true;
 }
 
 function validName() {
@@ -187,17 +199,28 @@ function snap() {
 // Load a user-picked image, center-crop it to the same 3:4 aspect, and
 // route into the same retake/use flow as a camera snap.
 async function loadFromFile(file) {
-  if (!file) return;
+  if (!file) {
+    console.warn('loadFromFile called with no file');
+    return;
+  }
+  console.log('loadFromFile:', file.name, file.size, 'bytes,', file.type);
+  if (!file.size) {
+    showOverlay('FILE IS EMPTY', 'error');
+    setTimeout(hideOverlay, 2500);
+    return;
+  }
+  showOverlay('LOADING PHOTO…');
   setStatus('LOADING PHOTO…');
   const url = URL.createObjectURL(file);
   try {
     const img = new Image();
     await new Promise((resolve, reject) => {
       img.onload = resolve;
-      img.onerror = () => reject(new Error('image decode failed'));
+      img.onerror = () => reject(new Error('image decode failed (unsupported format?)'));
       img.src = url;
     });
     const iw = img.naturalWidth, ih = img.naturalHeight;
+    console.log('image decoded:', iw, 'x', ih);
     if (!iw || !ih) throw new Error('image has zero dimensions');
 
     const targetAspect = CAPTURE_WIDTH / CAPTURE_HEIGHT;
@@ -219,25 +242,29 @@ async function loadFromFile(file) {
     canvas.style.display = 'block';
     video.style.display = 'none';
 
-    await new Promise((resolve) => {
+    showOverlay('PROCESSING…');
+    capturedBlob = await new Promise((resolve, reject) => {
       canvas.toBlob(
-        (blob) => { capturedBlob = blob; resolve(); },
+        (blob) => {
+          if (!blob) reject(new Error('toBlob returned null (canvas tainted?)'));
+          else resolve(blob);
+        },
         'image/jpeg',
         JPEG_QUALITY,
       );
     });
+    console.log('blob ready:', capturedBlob.size, 'bytes');
 
-    // Auto-submit gallery uploads — user already picked the file they
-    // wanted, no extra "use this" tap needed. The retake/use buttons
-    // appear only if upload fails so they can retry.
     snapBtn.hidden = true;
     retakeBtn.hidden = false;
     useBtn.hidden = false;
     flipBtn.disabled = true;
-    upload();
+    await upload();
   } catch (err) {
-    console.error(err);
+    console.error('loadFromFile failed:', err);
     setStatus('PHOTO LOAD FAILED', 'error');
+    showOverlay('PHOTO LOAD FAILED:\n' + (err.message || err), 'error');
+    setTimeout(hideOverlay, 4000);
   } finally {
     URL.revokeObjectURL(url);
     fileInput.value = ''; // allow re-selecting the same file
@@ -259,14 +286,17 @@ async function upload() {
   if (!capturedBlob) return;
   if (!APPS_SCRIPT_URL) {
     setStatus('UPLOAD URL NOT CONFIGURED', 'error');
+    showOverlay('UPLOAD URL NOT CONFIGURED', 'error');
     return;
   }
   useBtn.disabled = true;
   retakeBtn.disabled = true;
   setStatus('UPLOADING…');
+  showOverlay('UPLOADING…');
   try {
     await uploadPhoto(name, capturedBlob);
     setStatus('UPLOADED! THANK YOU.', 'ok');
+    showOverlay(`UPLOADED!\n\nTHANK YOU, ${name.toUpperCase()}.`, 'ok');
     stopCamera();
     snapBtn.hidden = true;
     retakeBtn.hidden = true;
@@ -275,6 +305,8 @@ async function upload() {
   } catch (err) {
     console.error(err);
     setStatus('UPLOAD FAILED — TRY AGAIN', 'error');
+    showOverlay('UPLOAD FAILED — TRY AGAIN', 'error');
+    setTimeout(hideOverlay, 2500);
     useBtn.disabled = false;
     retakeBtn.disabled = false;
   }
