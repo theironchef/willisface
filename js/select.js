@@ -8,7 +8,7 @@ import {
   drawCoverOnly,
   drawAligned,
   drawLandmarkMarkers,
-  canonicalTargets,
+  alignedLandmarksOnCanvas,
 } from './face.js';
 
 const PLACEHOLDER = './assets/placeholder.svg';
@@ -172,9 +172,12 @@ async function renderCompare() {
   drawSlot(cv2, rightEntry);
 
   if (state.debug) {
-    const targets = canonicalTargets(COMPARE_W, COMPARE_H);
-    if (leftEntry  && leftEntry.landmarks)  drawLandmarkMarkers(cv1, targets);
-    if (rightEntry && rightEntry.landmarks) drawLandmarkMarkers(cv2, targets);
+    if (leftEntry && leftEntry.landmarks) {
+      drawLandmarkMarkers(cv1, alignedLandmarksOnCanvas(cv1, leftEntry.landmarks));
+    }
+    if (rightEntry && rightEntry.landmarks) {
+      drawLandmarkMarkers(cv2, alignedLandmarksOnCanvas(cv2, rightEntry.landmarks));
+    }
   }
 
   // Status text.

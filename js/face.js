@@ -110,13 +110,13 @@ export const CANONICAL = {
   faceHFrac: 0.50, // face bounding-box height as fraction of canvas height
 };
 
-// Returns the canonical landmark target positions in canvas pixel coords
-// — used both as transform targets and to draw debug markers.
+// Returns the canonical landmark target positions in canvas pixel coords.
+// NOTE: scaling is driven by face bounding-box height, so the actual
+// canvas eye distance varies per face — these values are illustrative
+// only. For real-aligned eye positions use `alignedLandmarksOnCanvas`.
 export function canonicalTargets(W, H, opts = CANONICAL) {
   const cx = W * opts.eyeCx;
   const cy = H * opts.eyeCy;
-  // Approximate eye half-spacing for the debug eye-line marker. Real
-  // alignment uses the bounding box, so this is illustrative only.
   const halfEye = W * 0.16;
   const faceH = H * opts.faceHFrac;
   return {
@@ -124,6 +124,40 @@ export function canonicalTargets(W, H, opts = CANONICAL) {
     rightEye: { x: cx + halfEye, y: cy },
     nose:     { x: cx,           y: cy + faceH * 0.18 },
     mouth:    { x: cx,           y: cy + faceH * 0.36 },
+  };
+}
+
+// Applies the same similarity transform `drawAligned` uses to each
+// landmark in `lm`, yielding their canvas-space positions after
+// alignment. Use this (not canonicalTargets) for debug overlays so
+// markers track the actual aligned eyes/nose/mouth on each face.
+export function alignedLandmarksOnCanvas(canvas, lm, opts = CANONICAL) {
+  const W = canvas.width, H = canvas.height;
+  if (!lm || !lm.leftEye || !lm.rightEye || !lm.box || !lm.box.height) return null;
+
+  const lx = lm.leftEye.x,  ly = lm.leftEye.y;
+  const rx = lm.rightEye.x, ry = lm.rightEye.y;
+  const eyeCx = (lx + rx) / 2;
+  const eyeCy = (ly + ry) / 2;
+  const angle = Math.atan2(ry - ly, rx - lx);
+  const scale = (H * opts.faceHFrac) / lm.box.height;
+  const tcx = W * opts.eyeCx;
+  const tcy = H * opts.eyeCy;
+  const cos = Math.cos(-angle);
+  const sin = Math.sin(-angle);
+
+  const xform = (p) => {
+    if (!p) return null;
+    const dx = (p.x - eyeCx) * scale;
+    const dy = (p.y - eyeCy) * scale;
+    return { x: dx * cos - dy * sin + tcx, y: dx * sin + dy * cos + tcy };
+  };
+
+  return {
+    leftEye:  xform(lm.leftEye),
+    rightEye: xform(lm.rightEye),
+    nose:     xform(lm.nose),
+    mouth:    xform(lm.mouth),
   };
 }
 
