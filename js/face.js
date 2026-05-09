@@ -129,8 +129,8 @@ export function canonicalTargets(W, H, opts = CANONICAL) {
 
 // Applies the same similarity transform `drawAligned` uses to each
 // landmark in `lm`, yielding their canvas-space positions after
-// alignment. Use this (not canonicalTargets) for debug overlays so
-// markers track the actual aligned eyes/nose/mouth on each face.
+// alignment. Also returns the transformed bounding-box corners and
+// the raw transform parameters for debugging.
 export function alignedLandmarksOnCanvas(canvas, lm, opts = CANONICAL) {
   const W = canvas.width, H = canvas.height;
   if (!lm || !lm.leftEye || !lm.rightEye || !lm.box || !lm.box.height) return null;
@@ -153,11 +153,21 @@ export function alignedLandmarksOnCanvas(canvas, lm, opts = CANONICAL) {
     return { x: dx * cos - dy * sin + tcx, y: dx * sin + dy * cos + tcy };
   };
 
+  const b = lm.box;
+  const corners = [
+    { x: b.x,           y: b.y },
+    { x: b.x + b.width, y: b.y },
+    { x: b.x + b.width, y: b.y + b.height },
+    { x: b.x,           y: b.y + b.height },
+  ].map(xform);
+
   return {
     leftEye:  xform(lm.leftEye),
     rightEye: xform(lm.rightEye),
     nose:     xform(lm.nose),
     mouth:    xform(lm.mouth),
+    boxCorners: corners,
+    transform: { scale, angleDeg: angle * 180 / Math.PI, sourceEyeMid: { x: eyeCx, y: eyeCy } },
   };
 }
 
@@ -342,6 +352,23 @@ export function drawLandmarkMarkers(canvas, landmarksOnCv, opts = CANONICAL) {
   ctx.setLineDash([]);
 
   if (!landmarksOnCv) { ctx.restore(); return; }
+
+  // Transformed bounding box — shows EXACTLY what the alignment did.
+  // If the right face really got rotated/scaled, its box will be the
+  // same size & position as the left face's box.
+  if (landmarksOnCv.boxCorners && landmarksOnCv.boxCorners.length === 4) {
+    ctx.strokeStyle = '#00f0ff';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(landmarksOnCv.boxCorners[0].x, landmarksOnCv.boxCorners[0].y);
+    for (let i = 1; i < 4; i++) {
+      ctx.lineTo(landmarksOnCv.boxCorners[i].x, landmarksOnCv.boxCorners[i].y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
   const dot = (p, color, r = 12) => {
     if (!p) return;

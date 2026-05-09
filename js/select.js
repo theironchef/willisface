@@ -131,10 +131,14 @@ function setDebugStatus(text) {
   debugStatusEl.textContent = text;
 }
 
-function fmtMark(landmarks) {
-  if (!landmarks) return '✗';
-  const have = ['leftEye', 'rightEye', 'nose', 'mouth'].filter((k) => landmarks[k]).length;
-  return `${have}/4`;
+function fmtSlot(entry) {
+  if (!entry) return '—';
+  if (!entry.image) return 'noimg';
+  const lm = entry.landmarks;
+  if (!lm) return 'no-detect';
+  const have = ['leftEye', 'rightEye', 'nose', 'mouth'].filter((k) => lm[k]).length;
+  const aligned = !!(lm.leftEye && lm.rightEye && lm.box && lm.box.height > 0);
+  return `${have}/4 ${aligned ? 'ALIGNED' : 'COVER'}`;
 }
 
 let renderToken = 0;
@@ -172,17 +176,17 @@ async function renderCompare() {
   drawSlot(cv2, rightEntry);
 
   if (state.debug) {
-    if (leftEntry && leftEntry.landmarks) {
-      drawLandmarkMarkers(cv1, alignedLandmarksOnCanvas(cv1, leftEntry.landmarks));
-    }
-    if (rightEntry && rightEntry.landmarks) {
-      drawLandmarkMarkers(cv2, alignedLandmarksOnCanvas(cv2, rightEntry.landmarks));
-    }
+    const leftAligned  = leftEntry  && leftEntry.landmarks  ? alignedLandmarksOnCanvas(cv1, leftEntry.landmarks)  : null;
+    const rightAligned = rightEntry && rightEntry.landmarks ? alignedLandmarksOnCanvas(cv2, rightEntry.landmarks) : null;
+    if (leftEntry)  drawLandmarkMarkers(cv1, leftAligned);
+    if (rightEntry) drawLandmarkMarkers(cv2, rightAligned);
+    if (leftAligned)  console.log('LEFT  transform:',  leftAligned.transform);
+    if (rightAligned) console.log('RIGHT transform:', rightAligned.transform);
   }
 
   // Status text.
-  const lTag = leftEntry  ? fmtMark(leftEntry.landmarks)  : '—';
-  const rTag = rightEntry ? fmtMark(rightEntry.landmarks) : '—';
+  const lTag = fmtSlot(leftEntry);
+  const rTag = fmtSlot(rightEntry);
   const lSrc = leftEntry  ? leftEntry.sourceLabel  : '—';
   const rSrc = rightEntry ? rightEntry.sourceLabel : '—';
   setDebugStatus(`L: ${lTag} (${lSrc})   R: ${rTag} (${rSrc})`);
